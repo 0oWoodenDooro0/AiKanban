@@ -48,8 +48,8 @@ class SqliteTaskRepositoryTest {
     @DisplayName("Should initialize default columns on startup")
     fun testDefaultColumnsInitialization() {
         val columns = repository.getColumns()
-        assertEquals(5, columns.size)
-        assertEquals(listOf("TODO", "IN_PROGRESS", "PR_REVIEW", "REQUEST", "DONE"), columns.map { it.id })
+        assertEquals(7, columns.size)
+        assertEquals(listOf("TODO", "IN_PROGRESS", "REVIEW", "REQUEST", "PENDING", "REOPEN", "DONE"), columns.map { it.id })
 
         val doneCol = repository.getColumn("DONE")
         assertNotNull(doneCol)
@@ -211,20 +211,20 @@ class SqliteTaskRepositoryTest {
         assertEquals("agent-gemini", inProgress.logs[0].operator)
         assertEquals("Started working on logging refactor", inProgress.logs[0].comment)
 
-        // Move IN_PROGRESS -> PR_REVIEW
+        // Move IN_PROGRESS -> REVIEW
         val prReview =
             repository.moveTask(
                 taskId = task.id,
-                toStatus = "PR_REVIEW",
+                toStatus = "REVIEW",
                 operator = "agent-gemini",
                 comment = "Opened PR #42",
                 prUrl = "https://github.com/0oWoodenDooro0/AiKanban/pull/42",
             )
-        assertEquals("PR_REVIEW", prReview.status)
+        assertEquals("REVIEW", prReview.status)
         assertEquals(2, prReview.logs.size)
         assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/42", prReview.githubPrUrl)
 
-        // Move PR_REVIEW -> DONE (Terminal state)
+        // Move REVIEW -> DONE (Terminal state)
         val done =
             repository.moveTask(
                 taskId = task.id,

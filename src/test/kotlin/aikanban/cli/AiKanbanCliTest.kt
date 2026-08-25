@@ -96,6 +96,23 @@ class AiKanbanCliTest {
             assertTrue(result.stdout.contains("log"))
             assertTrue(result.stdout.contains("update"))
             assertTrue(result.stdout.contains("column"))
+            assertTrue(result.stdout.contains("--generate-completion"))
+        }
+
+        @Test
+        @DisplayName("Should generate shell completion script for bash, zsh, and fish")
+        fun testGenerateCompletion() {
+            val bashResult = execute("--generate-completion=bash")
+            assertEquals(0, bashResult.exitCode)
+            assertTrue(bashResult.stdout.contains("_aikanban") || bashResult.stdout.contains("COMPREPLY"))
+
+            val zshResult = execute("--generate-completion=zsh")
+            assertEquals(0, zshResult.exitCode)
+            assertTrue(zshResult.stdout.contains("#compdef aikanban") || zshResult.stdout.contains("_aikanban"))
+
+            val fishResult = execute("--generate-completion=fish")
+            assertEquals(0, fishResult.exitCode)
+            assertTrue(fishResult.stdout.contains("complete -c aikanban"))
         }
     }
 

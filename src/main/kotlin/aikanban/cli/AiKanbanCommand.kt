@@ -13,10 +13,13 @@ import aikanban.repository.SqliteTaskRepository
 import aikanban.service.DefaultKanbanService
 import aikanban.service.KanbanService
 import aikanban.service.exception.KanbanException
+import com.github.ajalt.clikt.completion.completionOption
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
 import com.github.ajalt.clikt.core.Context
+import com.github.ajalt.clikt.core.PrintCompletionMessage
 import com.github.ajalt.clikt.core.PrintHelpMessage
+import com.github.ajalt.clikt.core.PrintMessage
 import com.github.ajalt.clikt.core.parse
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.default
@@ -35,6 +38,7 @@ class AiKanbanCommand(
     val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     init {
+        completionOption(help = "Generate shell completion script (bash, zsh, fish)")
         subcommands(
             ListCommand(),
             AddCommand(),
@@ -64,6 +68,12 @@ class AiKanbanCommand(
             0
         } catch (e: PrintHelpMessage) {
             println(e.context?.command?.getFormattedHelp() ?: getFormattedHelp())
+            0
+        } catch (e: PrintCompletionMessage) {
+            println(e.message)
+            0
+        } catch (e: PrintMessage) {
+            println(e.message)
             0
         } catch (e: CliktError) {
             val isJson = args.contains("--json") || json

@@ -10,5 +10,5 @@ data class TaskLogEntry(
     val toStatus: String? = null,
     val comment: String,
     val prUrl: String? = null,
-    val commitHash: String? = null
+    val commitHash: String? = null,
 )

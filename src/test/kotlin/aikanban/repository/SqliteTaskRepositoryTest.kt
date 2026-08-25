@@ -27,7 +27,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SqliteTaskRepositoryTest {
-
     @TempDir
     lateinit var tempDir: Path
 
@@ -51,7 +50,7 @@ class SqliteTaskRepositoryTest {
         val columns = repository.getColumns()
         assertEquals(5, columns.size)
         assertEquals(listOf("TODO", "IN_PROGRESS", "PR_REVIEW", "REQUEST", "DONE"), columns.map { it.id })
-        
+
         val doneCol = repository.getColumn("DONE")
         assertNotNull(doneCol)
         assertTrue(doneCol.isTerminal)
@@ -64,13 +63,14 @@ class SqliteTaskRepositoryTest {
     @Test
     @DisplayName("Should support custom column CRUD operations and ordering")
     fun testCustomColumnCrud() {
-        val customCol = BoardColumn(
-            id = "QA",
-            name = "Quality Assurance",
-            order = 5,
-            color = "#A855F7",
-            isTerminal = false
-        )
+        val customCol =
+            BoardColumn(
+                id = "QA",
+                name = "Quality Assurance",
+                order = 5,
+                color = "#A855F7",
+                isTerminal = false,
+            )
         repository.saveColumn(customCol)
 
         val fetched = repository.getColumn("QA")
@@ -106,16 +106,17 @@ class SqliteTaskRepositoryTest {
     @Test
     @DisplayName("Should create, retrieve, update and delete a Task")
     fun testTaskCrud() {
-        val newTask = Task(
-            title = "Implement OAuth2 login",
-            description = "Support Google & GitHub SSO",
-            status = "TODO",
-            priority = TaskPriority.HIGH,
-            assignee = "agent-claude",
-            tags = setOf("auth", "security", "backend"),
-            githubRepo = "0oWoodenDooro0/AiKanban",
-            githubIssueUrl = "https://github.com/0oWoodenDooro0/AiKanban/issues/10"
-        )
+        val newTask =
+            Task(
+                title = "Implement OAuth2 login",
+                description = "Support Google & GitHub SSO",
+                status = "TODO",
+                priority = TaskPriority.HIGH,
+                assignee = "agent-claude",
+                tags = setOf("auth", "security", "backend"),
+                githubRepo = "0oWoodenDooro0/AiKanban",
+                githubIssueUrl = "https://github.com/0oWoodenDooro0/AiKanban/issues/10",
+            )
 
         val created = repository.createTask(newTask)
         assertTrue(created.id > 0)
@@ -135,11 +136,12 @@ class SqliteTaskRepositoryTest {
         assertEquals(created.tags, retrieved.tags)
 
         // Update task
-        val taskToUpdate = retrieved.copy(
-            title = "Implement OAuth2 & SAML login",
-            priority = TaskPriority.URGENT,
-            tags = setOf("auth", "enterprise")
-        )
+        val taskToUpdate =
+            retrieved.copy(
+                title = "Implement OAuth2 & SAML login",
+                priority = TaskPriority.URGENT,
+                tags = setOf("auth", "enterprise"),
+            )
         val updated = repository.updateTask(taskToUpdate)
         assertEquals("Implement OAuth2 & SAML login", updated.title)
         assertEquals(TaskPriority.URGENT, updated.priority)
@@ -192,13 +194,14 @@ class SqliteTaskRepositoryTest {
         assertTrue(task.logs.isEmpty())
 
         // Move TODO -> IN_PROGRESS
-        val inProgress = repository.moveTask(
-            taskId = task.id,
-            toStatus = "IN_PROGRESS",
-            operator = "agent-gemini",
-            comment = "Started working on logging refactor",
-            assignee = "agent-gemini"
-        )
+        val inProgress =
+            repository.moveTask(
+                taskId = task.id,
+                toStatus = "IN_PROGRESS",
+                operator = "agent-gemini",
+                comment = "Started working on logging refactor",
+                assignee = "agent-gemini",
+            )
         assertEquals("IN_PROGRESS", inProgress.status)
         assertEquals("agent-gemini", inProgress.assignee)
         assertNull(inProgress.completedAt)
@@ -209,35 +212,38 @@ class SqliteTaskRepositoryTest {
         assertEquals("Started working on logging refactor", inProgress.logs[0].comment)
 
         // Move IN_PROGRESS -> PR_REVIEW
-        val prReview = repository.moveTask(
-            taskId = task.id,
-            toStatus = "PR_REVIEW",
-            operator = "agent-gemini",
-            comment = "Opened PR #42",
-            prUrl = "https://github.com/0oWoodenDooro0/AiKanban/pull/42"
-        )
+        val prReview =
+            repository.moveTask(
+                taskId = task.id,
+                toStatus = "PR_REVIEW",
+                operator = "agent-gemini",
+                comment = "Opened PR #42",
+                prUrl = "https://github.com/0oWoodenDooro0/AiKanban/pull/42",
+            )
         assertEquals("PR_REVIEW", prReview.status)
         assertEquals(2, prReview.logs.size)
         assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/42", prReview.githubPrUrl)
 
         // Move PR_REVIEW -> DONE (Terminal state)
-        val done = repository.moveTask(
-            taskId = task.id,
-            toStatus = "DONE",
-            operator = "reviewer-bob",
-            comment = "LGTM! Merged."
-        )
+        val done =
+            repository.moveTask(
+                taskId = task.id,
+                toStatus = "DONE",
+                operator = "reviewer-bob",
+                comment = "LGTM! Merged.",
+            )
         assertEquals("DONE", done.status)
         assertNotNull(done.completedAt)
         assertEquals(3, done.logs.size)
 
         // Move DONE -> IN_PROGRESS (Reopened, terminal completedAt should be cleared)
-        val reopened = repository.moveTask(
-            taskId = task.id,
-            toStatus = "IN_PROGRESS",
-            operator = "qa-charlie",
-            comment = "Reopening due to edge case bug"
-        )
+        val reopened =
+            repository.moveTask(
+                taskId = task.id,
+                toStatus = "IN_PROGRESS",
+                operator = "qa-charlie",
+                comment = "Reopening due to edge case bug",
+            )
         assertEquals("IN_PROGRESS", reopened.status)
         assertNull(reopened.completedAt)
         assertEquals(4, reopened.logs.size)
@@ -292,7 +298,10 @@ class SqliteTaskRepositoryTest {
     @DisplayName("Should claim task matching specific tag filter only")
     fun testClaimNextTaskTagFiltering() {
         val t1 = repository.createTask(Task(title = "Task with python tag", status = "TODO", tags = setOf("python", "ai")))
-        val t2 = repository.createTask(Task(title = "Task with kotlin tag", status = "TODO", tags = setOf("kotlin", "backend"), priority = TaskPriority.URGENT))
+        val t2 =
+            repository.createTask(
+                Task(title = "Task with kotlin tag", status = "TODO", tags = setOf("kotlin", "backend"), priority = TaskPriority.URGENT),
+            )
 
         // Claim with tag = 'python' should claim t1 even though t2 has higher priority
         val claimed = repository.claimNextTask(fromStatus = "TODO", toStatus = "IN_PROGRESS", agentName = "python-agent", tag = "python")
@@ -309,11 +318,12 @@ class SqliteTaskRepositoryTest {
     @DisplayName("Should support appending manual logs to a task")
     fun testAppendLog() {
         val task = repository.createTask(Task(title = "Task with custom logs", status = "TODO"))
-        val entry1 = TaskLogEntry(
-            operator = "ci-bot",
-            comment = "Build #123 passed",
-            commitHash = "abc1234"
-        )
+        val entry1 =
+            TaskLogEntry(
+                operator = "ci-bot",
+                comment = "Build #123 passed",
+                commitHash = "abc1234",
+            )
         repository.appendLog(task.id, entry1)
 
         val retrieved = repository.getTask(task.id)
@@ -328,9 +338,10 @@ class SqliteTaskRepositoryTest {
     @DisplayName("High-concurrency test: 20 concurrent workers claiming 10 tasks without race conditions")
     fun testConcurrentClaimingNoDuplicate() {
         val taskCount = 10
-        val createdTasks = (1..taskCount).map { i ->
-            repository.createTask(Task(title = "Concurrent Task $i", status = "TODO", priority = TaskPriority.MEDIUM))
-        }
+        val createdTasks =
+            (1..taskCount).map { i ->
+                repository.createTask(Task(title = "Concurrent Task $i", status = "TODO", priority = TaskPriority.MEDIUM))
+            }
         assertEquals(taskCount, createdTasks.size)
 
         val workerCount = 20
@@ -346,11 +357,12 @@ class SqliteTaskRepositoryTest {
             executor.submit {
                 try {
                     startLatch.await()
-                    val claimed = repository.claimNextTask(
-                        fromStatus = "TODO",
-                        toStatus = "IN_PROGRESS",
-                        agentName = agentName
-                    )
+                    val claimed =
+                        repository.claimNextTask(
+                            fromStatus = "TODO",
+                            toStatus = "IN_PROGRESS",
+                            agentName = agentName,
+                        )
                     if (claimed != null) {
                         successfulClaims.incrementAndGet()
                         claimedTaskIds.add(claimed.id)
@@ -380,24 +392,26 @@ class SqliteTaskRepositoryTest {
 
     @Test
     @DisplayName("Coroutines concurrency test: concurrent claims and moves")
-    fun testCoroutinesConcurrency() = runBlocking {
-        val taskCount = 15
-        (1..taskCount).forEach { i ->
-            repository.createTask(Task(title = "Coroutine Task $i", status = "TODO"))
-        }
-
-        val results = (1..30).map { i ->
-            async(Dispatchers.IO) {
-                repository.claimNextTask(
-                    fromStatus = "TODO",
-                    toStatus = "IN_PROGRESS",
-                    agentName = "async-agent-$i"
-                )
+    fun testCoroutinesConcurrency() =
+        runBlocking {
+            val taskCount = 15
+            (1..taskCount).forEach { i ->
+                repository.createTask(Task(title = "Coroutine Task $i", status = "TODO"))
             }
-        }.awaitAll()
 
-        val nonNullClaims = results.filterNotNull()
-        assertEquals(taskCount, nonNullClaims.size)
-        assertEquals(taskCount, nonNullClaims.map { it.id }.toSet().size)
-    }
+            val results =
+                (1..30).map { i ->
+                    async(Dispatchers.IO) {
+                        repository.claimNextTask(
+                            fromStatus = "TODO",
+                            toStatus = "IN_PROGRESS",
+                            agentName = "async-agent-$i",
+                        )
+                    }
+                }.awaitAll()
+
+            val nonNullClaims = results.filterNotNull()
+            assertEquals(taskCount, nonNullClaims.size)
+            assertEquals(taskCount, nonNullClaims.map { it.id }.toSet().size)
+        }
 }

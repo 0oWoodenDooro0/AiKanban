@@ -12,9 +12,8 @@ import java.sql.ResultSet
 import java.sql.Statement
 
 class SqliteTaskRepository(
-    private val jdbcUrl: String = "jdbc:sqlite:aikanban.db"
+    private val jdbcUrl: String = "jdbc:sqlite:aikanban.db",
 ) : TaskRepository {
-
     private val connection: Connection = DriverManager.getConnection(jdbcUrl)
     private val lock = Any()
     private val json = Json { ignoreUnknownKeys = true }
@@ -42,7 +41,7 @@ class SqliteTaskRepository(
                     color TEXT NOT NULL,
                     is_terminal INTEGER NOT NULL DEFAULT 0
                 );
-                """.trimIndent()
+                """.trimIndent(),
             )
 
             stmt.execute(
@@ -63,7 +62,7 @@ class SqliteTaskRepository(
                     completed_at INTEGER,
                     FOREIGN KEY(status) REFERENCES columns(id) ON UPDATE CASCADE
                 );
-                """.trimIndent()
+                """.trimIndent(),
             )
 
             stmt.execute(
@@ -80,7 +79,7 @@ class SqliteTaskRepository(
                     commit_hash TEXT,
                     FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
                 );
-                """.trimIndent()
+                """.trimIndent(),
             )
 
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);")
@@ -92,10 +91,11 @@ class SqliteTaskRepository(
 
     override fun initDefaultColumns() {
         synchronized(lock) {
-            val count = connection.createStatement().use { stmt ->
-                val rs = stmt.executeQuery("SELECT COUNT(*) FROM columns;")
-                if (rs.next()) rs.getInt(1) else 0
-            }
+            val count =
+                connection.createStatement().use { stmt ->
+                    val rs = stmt.executeQuery("SELECT COUNT(*) FROM columns;")
+                    if (rs.next()) rs.getInt(1) else 0
+                }
             if (count == 0) {
                 BoardColumn.DEFAULT_COLUMNS.forEach { saveColumn(it) }
             }
@@ -105,7 +105,8 @@ class SqliteTaskRepository(
     override fun getColumns(): List<BoardColumn> {
         synchronized(lock) {
             val list = mutableListOf<BoardColumn>()
-            connection.prepareStatement("SELECT id, name, display_order, color, is_terminal FROM columns ORDER BY display_order ASC;").use { stmt ->
+            connection.prepareStatement("SELECT id, name, display_order, color, is_terminal FROM columns ORDER BY display_order ASC;").use {
+                    stmt ->
                 val rs = stmt.executeQuery()
                 while (rs.next()) {
                     list.add(
@@ -114,8 +115,8 @@ class SqliteTaskRepository(
                             name = rs.getString("name"),
                             order = rs.getInt("display_order"),
                             color = rs.getString("color"),
-                            isTerminal = rs.getInt("is_terminal") == 1
-                        )
+                            isTerminal = rs.getInt("is_terminal") == 1,
+                        ),
                     )
                 }
             }
@@ -134,7 +135,7 @@ class SqliteTaskRepository(
                         name = rs.getString("name"),
                         order = rs.getInt("display_order"),
                         color = rs.getString("color"),
-                        isTerminal = rs.getInt("is_terminal") == 1
+                        isTerminal = rs.getInt("is_terminal") == 1,
                     )
                 } else {
                     null
@@ -145,7 +146,8 @@ class SqliteTaskRepository(
 
     override fun saveColumn(column: BoardColumn) {
         synchronized(lock) {
-            val sql = """
+            val sql =
+                """
                 INSERT INTO columns (id, name, display_order, color, is_terminal)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
@@ -153,7 +155,7 @@ class SqliteTaskRepository(
                     display_order = excluded.display_order,
                     color = excluded.color,
                     is_terminal = excluded.is_terminal;
-            """.trimIndent()
+                """.trimIndent()
             connection.prepareStatement(sql).use { stmt ->
                 stmt.setString(1, column.id)
                 stmt.setString(2, column.name)
@@ -176,40 +178,42 @@ class SqliteTaskRepository(
 
     override fun createTask(task: Task): Task {
         synchronized(lock) {
-            val sql = """
+            val sql =
+                """
                 INSERT INTO tasks (
                     title, description, status, priority, assignee, tags,
                     github_repo, github_issue_url, github_pr_url,
                     created_at, updated_at, completed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-            """.trimIndent()
+                """.trimIndent()
 
             val now = System.currentTimeMillis()
             val createdAt = if (task.createdAt > 0) task.createdAt else now
             val updatedAt = if (task.updatedAt > 0) task.updatedAt else now
 
-            val generatedId = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS).use { stmt ->
-                stmt.setString(1, task.title)
-                stmt.setString(2, task.description)
-                stmt.setString(3, task.status)
-                stmt.setString(4, task.priority.name)
-                stmt.setString(5, task.assignee)
-                stmt.setString(6, json.encodeToString(task.tags))
-                stmt.setString(7, task.githubRepo)
-                stmt.setString(8, task.githubIssueUrl)
-                stmt.setString(9, task.githubPrUrl)
-                stmt.setLong(10, createdAt)
-                stmt.setLong(11, updatedAt)
-                if (task.completedAt != null) {
-                    stmt.setLong(12, task.completedAt)
-                } else {
-                    stmt.setNull(12, java.sql.Types.INTEGER)
-                }
-                stmt.executeUpdate()
+            val generatedId =
+                connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS).use { stmt ->
+                    stmt.setString(1, task.title)
+                    stmt.setString(2, task.description)
+                    stmt.setString(3, task.status)
+                    stmt.setString(4, task.priority.name)
+                    stmt.setString(5, task.assignee)
+                    stmt.setString(6, json.encodeToString(task.tags))
+                    stmt.setString(7, task.githubRepo)
+                    stmt.setString(8, task.githubIssueUrl)
+                    stmt.setString(9, task.githubPrUrl)
+                    stmt.setLong(10, createdAt)
+                    stmt.setLong(11, updatedAt)
+                    if (task.completedAt != null) {
+                        stmt.setLong(12, task.completedAt)
+                    } else {
+                        stmt.setNull(12, java.sql.Types.INTEGER)
+                    }
+                    stmt.executeUpdate()
 
-                val rs = stmt.generatedKeys
-                if (rs.next()) rs.getInt(1) else throw IllegalStateException("Failed to retrieve generated task ID")
-            }
+                    val rs = stmt.generatedKeys
+                    if (rs.next()) rs.getInt(1) else throw IllegalStateException("Failed to retrieve generated task ID")
+                }
 
             task.logs.forEach { logEntry ->
                 appendLogInternal(generatedId, logEntry)
@@ -222,15 +226,16 @@ class SqliteTaskRepository(
     override fun getTask(id: Int): Task? {
         synchronized(lock) {
             val sql = "SELECT * FROM tasks WHERE id = ?;"
-            val task = connection.prepareStatement(sql).use { stmt ->
-                stmt.setInt(1, id)
-                val rs = stmt.executeQuery()
-                if (rs.next()) {
-                    mapTask(rs)
-                } else {
-                    null
-                }
-            } ?: return null
+            val task =
+                connection.prepareStatement(sql).use { stmt ->
+                    stmt.setInt(1, id)
+                    val rs = stmt.executeQuery()
+                    if (rs.next()) {
+                        mapTask(rs)
+                    } else {
+                        null
+                    }
+                } ?: return null
 
             val logs = getTaskLogs(id)
             return task.copy(logs = logs)
@@ -240,7 +245,7 @@ class SqliteTaskRepository(
     override fun listTasks(
         status: String?,
         assignee: String?,
-        tag: String?
+        tag: String?,
     ): List<Task> {
         synchronized(lock) {
             val conditions = mutableListOf<String>()
@@ -273,11 +278,12 @@ class SqliteTaskRepository(
                 }
             }
 
-            val filtered = if (tag != null) {
-                tasks.filter { it.tags.contains(tag) }
-            } else {
-                tasks
-            }
+            val filtered =
+                if (tag != null) {
+                    tasks.filter { it.tags.contains(tag) }
+                } else {
+                    tasks
+                }
 
             return filtered.map { task ->
                 task.copy(logs = getTaskLogs(task.id))
@@ -287,7 +293,8 @@ class SqliteTaskRepository(
 
     override fun updateTask(task: Task): Task {
         synchronized(lock) {
-            val sql = """
+            val sql =
+                """
                 UPDATE tasks SET
                     title = ?,
                     description = ?,
@@ -301,7 +308,7 @@ class SqliteTaskRepository(
                     updated_at = ?,
                     completed_at = ?
                 WHERE id = ?;
-            """.trimIndent()
+                """.trimIndent()
 
             val now = System.currentTimeMillis()
             connection.prepareStatement(sql).use { stmt ->
@@ -346,10 +353,11 @@ class SqliteTaskRepository(
         fromStatus: String,
         toStatus: String,
         agentName: String,
-        tag: String?
+        tag: String?,
     ): Task? {
         synchronized(lock) {
-            val selectSql = """
+            val selectSql =
+                """
                 SELECT id, tags FROM tasks
                 WHERE status = ? AND (assignee IS NULL OR assignee = '')
                 ORDER BY
@@ -361,7 +369,7 @@ class SqliteTaskRepository(
                         ELSE 5
                     END ASC,
                     created_at ASC;
-            """.trimIndent()
+                """.trimIndent()
 
             var targetTaskId: Int? = null
 
@@ -371,11 +379,12 @@ class SqliteTaskRepository(
                 while (rs.next()) {
                     val id = rs.getInt("id")
                     val tagsJson = rs.getString("tags") ?: "[]"
-                    val tags = try {
-                        json.decodeFromString<Set<String>>(tagsJson)
-                    } catch (_: Exception) {
-                        emptySet()
-                    }
+                    val tags =
+                        try {
+                            json.decodeFromString<Set<String>>(tagsJson)
+                        } catch (_: Exception) {
+                            emptySet()
+                        }
 
                     if (tag == null || tags.contains(tag)) {
                         targetTaskId = id
@@ -390,25 +399,27 @@ class SqliteTaskRepository(
             val toCol = getColumn(toStatus)
             val isTerminal = toCol?.isTerminal == true
 
-            val updateSql = """
+            val updateSql =
+                """
                 UPDATE tasks SET
                     status = ?,
                     assignee = ?,
                     updated_at = ?,
                     completed_at = CASE WHEN ? = 1 THEN ? ELSE NULL END
                 WHERE id = ? AND status = ? AND (assignee IS NULL OR assignee = '');
-            """.trimIndent()
+                """.trimIndent()
 
-            val rowsAffected = connection.prepareStatement(updateSql).use { stmt ->
-                stmt.setString(1, toStatus)
-                stmt.setString(2, agentName)
-                stmt.setLong(3, now)
-                stmt.setInt(4, if (isTerminal) 1 else 0)
-                stmt.setLong(5, now)
-                stmt.setInt(6, taskId)
-                stmt.setString(7, fromStatus)
-                stmt.executeUpdate()
-            }
+            val rowsAffected =
+                connection.prepareStatement(updateSql).use { stmt ->
+                    stmt.setString(1, toStatus)
+                    stmt.setString(2, agentName)
+                    stmt.setLong(3, now)
+                    stmt.setInt(4, if (isTerminal) 1 else 0)
+                    stmt.setLong(5, now)
+                    stmt.setInt(6, taskId)
+                    stmt.setString(7, fromStatus)
+                    stmt.executeUpdate()
+                }
 
             if (rowsAffected == 0) {
                 // Task was claimed by another concurrent request in the meantime
@@ -417,13 +428,14 @@ class SqliteTaskRepository(
 
             appendLogInternal(
                 taskId = taskId,
-                entry = TaskLogEntry(
-                    timestamp = now,
-                    operator = agentName,
-                    fromStatus = fromStatus,
-                    toStatus = toStatus,
-                    comment = "Task claimed by $agentName"
-                )
+                entry =
+                    TaskLogEntry(
+                        timestamp = now,
+                        operator = agentName,
+                        fromStatus = fromStatus,
+                        toStatus = toStatus,
+                        comment = "Task claimed by $agentName",
+                    ),
             )
 
             return getTask(taskId)
@@ -436,7 +448,7 @@ class SqliteTaskRepository(
         operator: String,
         comment: String?,
         prUrl: String?,
-        assignee: String?
+        assignee: String?,
     ): Task {
         synchronized(lock) {
             val currentTask = getTask(taskId) ?: throw IllegalArgumentException("Task $taskId not found")
@@ -445,14 +457,16 @@ class SqliteTaskRepository(
             val isTerminal = targetColumn?.isTerminal == true
 
             val now = System.currentTimeMillis()
-            val newCompletedAt: Long? = when {
-                isTerminal -> currentTask.completedAt ?: now
-                else -> null
-            }
+            val newCompletedAt: Long? =
+                when {
+                    isTerminal -> currentTask.completedAt ?: now
+                    else -> null
+                }
             val newAssignee = assignee ?: currentTask.assignee
             val newPrUrl = prUrl ?: currentTask.githubPrUrl
 
-            val updateSql = """
+            val updateSql =
+                """
                 UPDATE tasks SET
                     status = ?,
                     assignee = ?,
@@ -460,7 +474,7 @@ class SqliteTaskRepository(
                     updated_at = ?,
                     completed_at = ?
                 WHERE id = ?;
-            """.trimIndent()
+                """.trimIndent()
 
             connection.prepareStatement(updateSql).use { stmt ->
                 stmt.setString(1, toStatus)
@@ -479,33 +493,41 @@ class SqliteTaskRepository(
             val logComment = comment ?: "Status changed from $fromStatus to $toStatus"
             appendLogInternal(
                 taskId = taskId,
-                entry = TaskLogEntry(
-                    timestamp = now,
-                    operator = operator,
-                    fromStatus = fromStatus,
-                    toStatus = toStatus,
-                    comment = logComment,
-                    prUrl = prUrl
-                )
+                entry =
+                    TaskLogEntry(
+                        timestamp = now,
+                        operator = operator,
+                        fromStatus = fromStatus,
+                        toStatus = toStatus,
+                        comment = logComment,
+                        prUrl = prUrl,
+                    ),
             )
 
             return getTask(taskId) ?: throw IllegalStateException("Failed to load moved task $taskId")
         }
     }
 
-    override fun appendLog(taskId: Int, entry: TaskLogEntry) {
+    override fun appendLog(
+        taskId: Int,
+        entry: TaskLogEntry,
+    ) {
         synchronized(lock) {
             appendLogInternal(taskId, entry)
         }
     }
 
-    private fun appendLogInternal(taskId: Int, entry: TaskLogEntry) {
-        val sql = """
+    private fun appendLogInternal(
+        taskId: Int,
+        entry: TaskLogEntry,
+    ) {
+        val sql =
+            """
             INSERT INTO task_logs (
                 task_id, timestamp, operator, from_status, to_status,
                 comment, pr_url, commit_hash
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-        """.trimIndent()
+            """.trimIndent()
 
         connection.prepareStatement(sql).use { stmt ->
             stmt.setInt(1, taskId)
@@ -535,8 +557,8 @@ class SqliteTaskRepository(
                         toStatus = rs.getString("to_status"),
                         comment = rs.getString("comment"),
                         prUrl = rs.getString("pr_url"),
-                        commitHash = rs.getString("commit_hash")
-                    )
+                        commitHash = rs.getString("commit_hash"),
+                    ),
                 )
             }
         }
@@ -545,11 +567,12 @@ class SqliteTaskRepository(
 
     private fun mapTask(rs: ResultSet): Task {
         val tagsJson = rs.getString("tags") ?: "[]"
-        val tags = try {
-            json.decodeFromString<Set<String>>(tagsJson)
-        } catch (_: Exception) {
-            emptySet()
-        }
+        val tags =
+            try {
+                json.decodeFromString<Set<String>>(tagsJson)
+            } catch (_: Exception) {
+                emptySet()
+            }
 
         val completedAtVal = rs.getLong("completed_at")
         val completedAt = if (rs.wasNull()) null else completedAtVal
@@ -568,7 +591,7 @@ class SqliteTaskRepository(
             logs = emptyList(),
             createdAt = rs.getLong("created_at"),
             updatedAt = rs.getLong("updated_at"),
-            completedAt = completedAt
+            completedAt = completedAt,
         )
     }
 

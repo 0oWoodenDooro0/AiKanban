@@ -7,5 +7,5 @@ enum class TaskPriority(val level: Int) {
     LOW(1),
     MEDIUM(2),
     HIGH(3),
-    URGENT(4)
+    URGENT(4),
 }

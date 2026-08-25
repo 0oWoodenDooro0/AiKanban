@@ -17,5 +17,5 @@ data class Task(
     val logs: List<TaskLogEntry> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val completedAt: Long? = null
+    val completedAt: Long? = null,
 )

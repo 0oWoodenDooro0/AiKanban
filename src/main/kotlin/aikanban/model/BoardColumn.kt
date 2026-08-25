@@ -8,7 +8,7 @@ data class BoardColumn(
     val name: String,
     val order: Int,
     val color: String = "#6B7280",
-    val isTerminal: Boolean = false
+    val isTerminal: Boolean = false,
 ) {
     companion object {
         val TODO = BoardColumn("TODO", "To Do", 0, "#6B7280", isTerminal = false)

@@ -1,5 +1,8 @@
 package aikanban
 
-fun main() {
-    println("AiKanban Core v0.1.0 initialized.")
+import aikanban.cli.AiKanbanCommand
+import com.github.ajalt.clikt.core.main
+
+fun main(args: Array<String>) {
+    AiKanbanCommand().main(args)
 }

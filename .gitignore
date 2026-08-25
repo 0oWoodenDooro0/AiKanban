@@ -1,12 +1,20 @@
 .gradle/
 build/
-out/
+!gradle/wrapper/gradle-wrapper.jar
+
+### IntelliJ IDEA ###
 .idea/
+*.iws
 *.iml
 *.ipr
-*.iws
+out/
+
+### Databases ###
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
+
+### OS generated files ###
 .DS_Store
+Thumbs.db

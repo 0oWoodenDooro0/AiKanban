@@ -6,6 +6,7 @@ import aikanban.cli.command.ColumnCommand
 import aikanban.cli.command.ListCommand
 import aikanban.cli.command.LogCommand
 import aikanban.cli.command.MoveCommand
+import aikanban.cli.command.ServeCommand
 import aikanban.cli.command.ShowCommand
 import aikanban.cli.command.UpdateCommand
 import aikanban.cli.renderer.JsonRenderer
@@ -48,6 +49,7 @@ class AiKanbanCommand(
             LogCommand(),
             UpdateCommand(),
             ColumnCommand(),
+            ServeCommand(),
         )
     }
 

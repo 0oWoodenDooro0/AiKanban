@@ -8,8 +8,11 @@ import aikanban.cli.command.LogCommand
 import aikanban.cli.command.MoveCommand
 import aikanban.cli.command.ServeCommand
 import aikanban.cli.command.ShowCommand
+import aikanban.cli.command.SyncGitHubCommand
 import aikanban.cli.command.UpdateCommand
 import aikanban.cli.renderer.JsonRenderer
+import aikanban.github.service.DefaultGitHubSyncService
+import aikanban.github.service.GitHubSyncService
 import aikanban.repository.SqliteTaskRepository
 import aikanban.service.DefaultKanbanService
 import aikanban.service.KanbanService
@@ -30,6 +33,7 @@ import com.github.ajalt.mordant.terminal.Terminal
 
 class AiKanbanCommand(
     private val serviceOverride: KanbanService? = null,
+    private val gitHubSyncServiceOverride: GitHubSyncService? = null,
     private val terminal: Terminal = Terminal(),
 ) : CliktCommand(name = "aikanban") {
     override fun help(context: Context): String = "AiKanban - Universal CLI Kanban Board for Humans and AI Agents"
@@ -49,15 +53,18 @@ class AiKanbanCommand(
             LogCommand(),
             UpdateCommand(),
             ColumnCommand(),
+            SyncGitHubCommand(),
             ServeCommand(),
         )
     }
 
     override fun run() {
         val service = serviceOverride ?: DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:$db"))
+        val syncService = gitHubSyncServiceOverride ?: DefaultGitHubSyncService(service)
         currentContext.findOrSetObject {
             CliContext(
                 service = service,
+                gitHubSyncService = syncService,
                 terminal = terminal,
                 jsonOutput = json,
             )

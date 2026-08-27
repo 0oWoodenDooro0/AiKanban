@@ -89,3 +89,41 @@ data class ErrorResponse(
 data class MessageResponse(
     val message: String,
 )
+
+@Serializable
+data class GitHubSyncRequest(
+    val repo: String? = null,
+    val url: String? = null,
+    val state: String = "open",
+    val tags: Set<String> = emptySet(),
+    val includePrs: Boolean = false,
+    val targetStatus: String = "TODO",
+    val token: String? = null,
+    val operator: String = "api-github-sync",
+    val dryRun: Boolean = false,
+)
+
+@Serializable
+data class GitHubSyncResponse(
+    val repo: String,
+    val totalFetched: Int,
+    val createdCount: Int,
+    val updatedCount: Int,
+    val skippedCount: Int = 0,
+    val tasks: List<aikanban.model.Task> = emptyList(),
+    val errors: List<String> = emptyList(),
+)
+
+@Serializable
+data class GitHubResolveRequest(
+    val url: String,
+)
+
+@Serializable
+data class GitHubResolveResponse(
+    val owner: String,
+    val repo: String,
+    val type: String,
+    val number: Int? = null,
+    val canonicalUrl: String,
+)

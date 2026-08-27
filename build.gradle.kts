@@ -25,7 +25,7 @@ dependencies {
     implementation("com.github.ajalt.mordant:mordant:3.0.2")
     implementation("com.github.ajalt.mordant:mordant-markdown:3.0.2")
 
-    // Ktor Server & SSE
+    // Ktor Server, Client & SSE
     val ktorVersion = "3.1.1"
     implementation("io.ktor:ktor-server-core-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-netty-jvm:$ktorVersion")
@@ -34,6 +34,9 @@ dependencies {
     implementation("io.ktor:ktor-server-cors-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-sse-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-status-pages-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-client-core-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-client-cio-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion")
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.16")
@@ -43,7 +46,7 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.1")
     testImplementation("io.ktor:ktor-server-test-host-jvm:$ktorVersion")
-    testImplementation("io.ktor:ktor-client-content-negotiation-jvm:$ktorVersion")
+    testImplementation("io.ktor:ktor-client-mock-jvm:$ktorVersion")
 }
 
 kotlin {

@@ -31,6 +31,7 @@ class AiKanbanCliTest {
     private lateinit var dbFile: File
     private lateinit var repository: SqliteTaskRepository
     private lateinit var service: KanbanService
+    private var gitHubSyncService: aikanban.github.service.GitHubSyncService? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     @BeforeEach
@@ -38,6 +39,7 @@ class AiKanbanCliTest {
         dbFile = tempDir.resolve("cli_test.db").toFile()
         repository = SqliteTaskRepository("jdbc:sqlite:${dbFile.absolutePath}")
         service = DefaultKanbanService(repository)
+        gitHubSyncService = null
     }
 
     @AfterEach
@@ -63,7 +65,11 @@ class AiKanbanCliTest {
         System.setErr(printErr)
 
         try {
-            val command = AiKanbanCommand(serviceOverride = service)
+            val command =
+                AiKanbanCommand(
+                    serviceOverride = service,
+                    gitHubSyncServiceOverride = gitHubSyncService,
+                )
             val exitCode = command.parseArgs(args.toList())
             return CliExecutionResult(
                 exitCode = exitCode,
@@ -96,6 +102,7 @@ class AiKanbanCliTest {
             assertTrue(result.stdout.contains("log"))
             assertTrue(result.stdout.contains("update"))
             assertTrue(result.stdout.contains("column"))
+            assertTrue(result.stdout.contains("sync-github"))
             assertTrue(result.stdout.contains("--generate-completion"))
         }
 
@@ -664,6 +671,109 @@ class AiKanbanCliTest {
                 )
             assertEquals(0, result.exitCode)
             assertNull(service.getColumn("CUSTOM"))
+        }
+    }
+
+    private class TestGitHubClient : aikanban.github.client.GitHubClient {
+        val issues = mutableListOf<aikanban.github.model.GitHubIssueDto>()
+
+        override suspend fun fetchRepositoryIssues(
+            owner: String,
+            repo: String,
+            state: String,
+            labels: Set<String>,
+            token: String?,
+            page: Int,
+            perPage: Int,
+        ): List<aikanban.github.model.GitHubIssueDto> = issues
+
+        override suspend fun fetchIssue(
+            owner: String,
+            repo: String,
+            number: Int,
+            token: String?,
+        ): aikanban.github.model.GitHubIssueDto? = issues.find { it.number == number }
+
+        override fun close() {}
+    }
+
+    // ==========================================
+    // 10. Sync-GitHub Command Tests
+    // ==========================================
+
+    @Nested
+    @DisplayName("Sync GitHub Command")
+    inner class SyncGitHubCommandTests {
+        @Test
+        @DisplayName("Should sync issues from repository in human format")
+        fun testSyncGitHubHuman() {
+            val client = TestGitHubClient()
+            client.issues.add(
+                aikanban.github.model.GitHubIssueDto(
+                    id = 1,
+                    number = 101,
+                    title = "CLI Synced Issue",
+                    body = "Description for CLI issue",
+                    state = "open",
+                    htmlUrl = "https://github.com/myorg/myrepo/issues/101",
+                    labels = listOf(aikanban.github.model.GitHubLabelDto(name = "priority:high")),
+                ),
+            )
+            gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
+
+            val result = execute("sync-github", "myorg/myrepo")
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("CLI Synced Issue") || result.stdout.contains("Synced"))
+
+            val task = service.listTasks().firstOrNull()
+            assertNotNull(task)
+            assertEquals("CLI Synced Issue", task.title)
+        }
+
+        @Test
+        @DisplayName("Should sync issues from repository in JSON format")
+        fun testSyncGitHubJson() {
+            val client = TestGitHubClient()
+            client.issues.add(
+                aikanban.github.model.GitHubIssueDto(
+                    id = 2,
+                    number = 102,
+                    title = "JSON Synced Issue",
+                    state = "open",
+                    htmlUrl = "https://github.com/myorg/myrepo/issues/102",
+                ),
+            )
+            gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
+
+            val result = execute("sync-github", "myorg/myrepo", "--json")
+            assertEquals(0, result.exitCode)
+            val syncResult = json.decodeFromString<aikanban.github.model.GitHubSyncResult>(result.stdout)
+            assertEquals("myorg/myrepo", syncResult.repo)
+            assertEquals(1, syncResult.createdCount)
+            assertEquals(1, syncResult.tasks.size)
+        }
+
+        @Test
+        @DisplayName("Should sync single URL and support --dry-run flag")
+        fun testSyncGitHubDryRunAndUrl() {
+            val client = TestGitHubClient()
+            client.issues.add(
+                aikanban.github.model.GitHubIssueDto(
+                    id = 3,
+                    number = 50,
+                    title = "Single URL Dry Run Issue",
+                    state = "open",
+                    htmlUrl = "https://github.com/myorg/myrepo/issues/50",
+                ),
+            )
+            gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
+
+            val result = execute("sync-github", "--url", "https://github.com/myorg/myrepo/issues/50", "--dry-run", "--json")
+            assertEquals(0, result.exitCode)
+            val syncResult = json.decodeFromString<aikanban.github.model.GitHubSyncResult>(result.stdout)
+            assertEquals(1, syncResult.totalFetched)
+            assertEquals(1, syncResult.createdCount)
+            assertEquals(0, service.listTasks().size) // dry run: 0 in DB
         }
     }
 }

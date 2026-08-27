@@ -10,7 +10,7 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.int
 
 class ServeCommand : CliktCommand(name = "serve") {
-    override fun help(context: Context): String = "Start the embedded Ktor REST API and real-time SSE server"
+    override fun help(context: Context): String = "Start the embedded Ktor Web Kanban dashboard, REST API, and real-time SSE server"
 
     private val cliContext by requireObject<CliContext>()
 
@@ -22,7 +22,8 @@ class ServeCommand : CliktCommand(name = "serve") {
         .default("0.0.0.0")
 
     override fun run() {
-        cliContext.terminal.println("Starting AiKanban REST & SSE server on http://$host:$port...")
+        cliContext.terminal.println("Starting AiKanban Web Dashboard & API server on http://$host:$port...")
+        cliContext.terminal.println("Open http://localhost:$port in your browser to view the Kanban board.")
         cliContext.terminal.println("Press Ctrl+C to stop.")
         startKanbanServer(port = port, host = host, service = cliContext.service, wait = true)
     }

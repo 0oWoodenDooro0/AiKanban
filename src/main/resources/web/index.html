@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AiKanban - Local-First AI & Developer Kanban</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><path d='M3 3h4v18H3zm7 0h4v12h-4zm7 0h4v8h-4z'/></svg>">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="5" height="18" rx="1" fill="#6366f1" stroke="none"></rect>
+          <rect x="10" y="3" width="5" height="12" rx="1" fill="#8b5cf6" stroke="none"></rect>
+          <rect x="17" y="3" width="5" height="8" rx="1" fill="#ec4899" stroke="none"></rect>
+        </svg>
+        <span class="brand-title">Ai<span class="brand-accent">Kanban</span></span>
+      </div>
+
+      <!-- Real-time SSE Connection Status Badge -->
+      <div id="sse-status" class="status-badge status-connected" title="Real-time SSE Status">
+        <span class="status-dot"></span>
+        <span id="sse-status-text" class="status-text">Live</span>
+      </div>
+    </div>
+
+    <!-- Search and Filters -->
+    <div class="header-filters">
+      <div class="search-box">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="search-input" placeholder="Search tasks, tags, assignees..." autocomplete="off">
+        <button id="clear-search" class="clear-btn" style="display: none;">&times;</button>
+      </div>
+
+      <div class="filter-group">
+        <select id="filter-priority" class="filter-select">
+          <option value="">All Priorities</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
+
+        <select id="filter-assignee" class="filter-select">
+          <option value="">All Assignees</option>
+        </select>
+
+        <select id="filter-tag" class="filter-select">
+          <option value="">All Tags</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Header Actions -->
+    <div class="header-right">
+      <div class="operator-box">
+        <label for="operator-input" title="Current actor name recorded in audit logs">👤</label>
+        <input type="text" id="operator-input" value="web-user" title="Operator name for audit trail" placeholder="Operator">
+      </div>
+
+      <button id="btn-manage-columns" class="btn btn-secondary" title="Manage Columns">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7m0-18H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7m0-18v18"/>
+        </svg>
+        <span>Columns</span>
+      </button>
+
+      <button id="btn-new-task" class="btn btn-primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>New Task</span>
+      </button>
+
+      <button id="btn-refresh" class="btn btn-icon" title="Refresh Board">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Kanban Board Area -->
+  <main class="board-container">
+    <div id="board" class="board">
+      <!-- Dynamic columns injected here by app.js -->
+    </div>
+  </main>
+
+  <!-- Task Detail Slide-Over Drawer -->
+  <div id="task-drawer-backdrop" class="drawer-backdrop">
+    <div id="task-drawer" class="drawer">
+      <div class="drawer-header">
+        <div class="drawer-header-left">
+          <span id="drawer-task-id" class="task-id-pill">#0</span>
+          <select id="drawer-status-select" class="drawer-select status-select"></select>
+          <select id="drawer-priority-select" class="drawer-select priority-select">
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+        </div>
+        <div class="drawer-header-right">
+          <button id="drawer-btn-claim" class="btn btn-sm btn-outline" title="Claim task with current operator">Claim</button>
+          <button id="drawer-btn-release" class="btn btn-sm btn-outline" title="Release task back to unassigned">Release</button>
+          <button id="drawer-btn-delete" class="btn btn-sm btn-danger-ghost" title="Delete Task">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+          <button id="drawer-close" class="btn btn-icon close-btn">&times;</button>
+        </div>
+      </div>
+
+      <div class="drawer-content">
+        <!-- Title & Description -->
+        <div class="drawer-section">
+          <input type="text" id="drawer-title" class="drawer-title-input" placeholder="Task Title">
+        </div>
+
+        <div class="drawer-section">
+          <div class="section-label-bar">
+            <label class="section-label">Description</label>
+            <div class="desc-mode-toggle">
+              <button id="btn-desc-preview" class="toggle-btn active">Preview</button>
+              <button id="btn-desc-edit" class="toggle-btn">Edit (Markdown)</button>
+            </div>
+          </div>
+          <div id="drawer-desc-preview" class="markdown-preview"></div>
+          <textarea id="drawer-desc-editor" class="desc-textarea" rows="6" placeholder="Add description (supports Markdown)..." style="display: none;"></textarea>
+        </div>
+
+        <!-- Task Metadata Fields -->
+        <div class="drawer-section metadata-grid">
+          <div class="meta-field">
+            <label>Assignee</label>
+            <input type="text" id="drawer-assignee" placeholder="Unassigned">
+          </div>
+          <div class="meta-field">
+            <label>Tags (comma separated)</label>
+            <input type="text" id="drawer-tags" placeholder="e.g. backend, bug, ui">
+          </div>
+          <div class="meta-field">
+            <label>GitHub Repo</label>
+            <input type="text" id="drawer-github-repo" placeholder="owner/repo">
+          </div>
+          <div class="meta-field">
+            <label>GitHub Issue</label>
+            <div class="input-with-action">
+              <input type="url" id="drawer-github-issue" placeholder="https://github.com/...">
+              <a id="link-github-issue" href="#" target="_blank" rel="noopener noreferrer" class="link-btn" title="Open Issue">↗</a>
+            </div>
+          </div>
+          <div class="meta-field full-width">
+            <label>GitHub Pull Request</label>
+            <div class="input-with-action">
+              <input type="url" id="drawer-github-pr" placeholder="https://github.com/.../pull/1">
+              <a id="link-github-pr" href="#" target="_blank" rel="noopener noreferrer" class="link-btn" title="Open PR">↗</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="drawer-actions-bar">
+          <button id="drawer-btn-save" class="btn btn-primary">Save Changes</button>
+          <span id="drawer-save-status" class="save-status"></span>
+        </div>
+
+        <!-- Execution Logs & Audit Timeline -->
+        <div class="drawer-section logs-section">
+          <div class="section-label-bar">
+            <label class="section-label">Execution Logs & Audit History (<span id="logs-count">0</span>)</label>
+          </div>
+
+          <!-- Add Comment Form -->
+          <form id="form-add-comment" class="comment-form">
+            <textarea id="comment-text" placeholder="Write a comment or execution note..." rows="2" required></textarea>
+            <div class="comment-form-footer">
+              <input type="text" id="comment-commit" class="comment-extra-input" placeholder="Commit Hash (optional)">
+              <input type="url" id="comment-pr" class="comment-extra-input" placeholder="PR URL (optional)">
+              <button type="submit" class="btn btn-sm btn-secondary">Post Log</button>
+            </div>
+          </form>
+
+          <!-- Timeline Container -->
+          <div id="drawer-logs-timeline" class="logs-timeline">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Task Modal -->
+  <div id="modal-new-task" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Create New Task</h3>
+        <button class="modal-close close-btn">&times;</button>
+      </div>
+      <form id="form-new-task" class="modal-body">
+        <div class="form-group">
+          <label for="new-task-title">Title *</label>
+          <input type="text" id="new-task-title" required placeholder="What needs to be done?">
+        </div>
+        <div class="form-group">
+          <label for="new-task-desc">Description (Markdown)</label>
+          <textarea id="new-task-desc" rows="4" placeholder="Detailed requirements, tasks, or acceptance criteria..."></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-task-column">Initial Status / Column</label>
+            <select id="new-task-column"></select>
+          </div>
+          <div class="form-group">
+            <label for="new-task-priority">Priority</label>
+            <select id="new-task-priority">
+              <option value="MEDIUM" selected>Medium</option>
+              <option value="LOW">Low</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-task-assignee">Assignee</label>
+            <input type="text" id="new-task-assignee" placeholder="e.g. agent-coder, user">
+          </div>
+          <div class="form-group">
+            <label for="new-task-tags">Tags (comma-separated)</label>
+            <input type="text" id="new-task-tags" placeholder="feature, auth, ui">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="new-task-repo">GitHub Repository</label>
+            <input type="text" id="new-task-repo" placeholder="owner/repo">
+          </div>
+          <div class="form-group">
+            <label for="new-task-issue">GitHub Issue URL</label>
+            <input type="url" id="new-task-issue" placeholder="https://github.com/.../issues/12">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary modal-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Manage Columns Modal -->
+  <div id="modal-manage-columns" class="modal-backdrop">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Manage Board Columns</h3>
+        <button class="modal-close close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="column-list-table-container">
+          <table class="column-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Order</th>
+                <th>Color</th>
+                <th>Terminal</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="column-table-body">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="add-column-box">
+          <h4>Add New Column</h4>
+          <form id="form-add-column" class="add-column-form">
+            <input type="text" id="new-col-id" placeholder="Column ID (e.g. testing)" required pattern="[a-zA-Z0-9_\-]+" title="Alphanumeric, dashes, or underscores">
+            <input type="text" id="new-col-name" placeholder="Display Name (e.g. In Testing)" required>
+            <input type="number" id="new-col-order" placeholder="Order (e.g. 3)" value="0" required>
+            <div class="color-picker-wrapper">
+              <input type="color" id="new-col-color" value="#6366f1" title="Column Color">
+            </div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="new-col-terminal"> Terminal Column
+            </label>
+            <button type="submit" class="btn btn-primary">Add Column</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="/js/app.js"></script>
+</body>
+</html>

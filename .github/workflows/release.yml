@@ -1,0 +1,110 @@
+name: Release - Multi-Platform GraalVM Native Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-native:
+    name: Build Native (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            os: ubuntu-latest
+            artifact_name: aikanban-linux-amd64
+            binary_source: build/native/nativeCompile/aikanban
+          - target: darwin-arm64
+            os: macos-14
+            artifact_name: aikanban-darwin-arm64
+            binary_source: build/native/nativeCompile/aikanban
+          - target: darwin-amd64
+            os: macos-13
+            artifact_name: aikanban-darwin-amd64
+            binary_source: build/native/nativeCompile/aikanban
+          - target: windows-amd64
+            os: windows-latest
+            artifact_name: aikanban-windows-amd64.exe
+            binary_source: build/native/nativeCompile/aikanban.exe
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up GraalVM JDK 21
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          native-image-job-reports: 'true'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        if: runner.os != 'Windows'
+        run: chmod +x gradlew
+
+      - name: Build Native Executable
+        run: ./gradlew nativeCompile --no-daemon
+
+      - name: Stage Artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp "${{ matrix.binary_source }}" "dist/${{ matrix.artifact_name }}"
+          chmod +x "dist/${{ matrix.artifact_name }}"
+
+      - name: Stage Artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "${{ matrix.binary_source }}" "dist/${{ matrix.artifact_name }}"
+
+      - name: Upload Native Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build-native
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download All Native Binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate SHA256 Checksums
+        run: |
+          cd release-assets
+          sha256sum aikanban-* > checksums.txt
+          echo "=== Generated Checksums ==="
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/aikanban-linux-amd64
+            release-assets/aikanban-darwin-arm64
+            release-assets/aikanban-darwin-amd64
+            release-assets/aikanban-windows-amd64.exe
+            release-assets/checksums.txt
+          generate_release_notes: true

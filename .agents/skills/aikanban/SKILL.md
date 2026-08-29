@@ -2,7 +2,7 @@
 name: aikanban
 description: >-
   Command reference and usage guide for interacting with the local-first AiKanban CLI board.
-  Use this skill whenever an AI agent needs to query, create, update, claim, move, or log tasks on the Kanban board, or sync GitHub issues.
+  Use this skill whenever an AI agent needs to query, create, update, claim, move, or log tasks on the Kanban board, sync issues, or automate workflows.
 ---
 
 # AiKanban CLI Reference
@@ -11,7 +11,7 @@ This skill provides a concise command reference for AI agents operating the **Ai
 
 ---
 
-## Global Options
+## Global Options & Configuration
 
 All `aikanban` commands accept the following global options:
 
@@ -20,6 +20,22 @@ All `aikanban` commands accept the following global options:
 | `--json` | - | `false` | Output responses in machine-readable JSON format (recommended for AI agents). |
 | `--db <path>` | `AIKANBAN_DB` | `aikanban.db` | Path to the SQLite database file. |
 | `--generate-completion <shell>` | - | - | Generate shell completion script (`bash`, `zsh`, `fish`). |
+
+### Project Configuration (`.aikanban.json`)
+
+Repositories can configure AiKanban preferences in `.aikanban.json` or `aikanban.config.json`:
+
+```json
+{
+  "provider": "local-git",
+  "defaultBaseBranch": "main",
+  "repo": "owner/repo",
+  "branchPrefix": "feature/",
+  "token": "optional-token"
+}
+```
+
+- **Supported Providers**: `local-git` (default, pure offline local Git), `github` (GitHub CLI & API).
 
 ---
 
@@ -38,18 +54,6 @@ aikanban --json list [options]
 - `-t, --tag <TAG>`: Filter by tag name.
 - `-p, --priority <PRIORITY>`: Filter by priority (`LOW`, `MEDIUM`, `HIGH`, `URGENT`).
 
-**Examples:**
-```bash
-# List all tasks
-aikanban --json list
-
-# Filter tasks in progress assigned to an agent
-aikanban --json list -s IN_PROGRESS -a agent-1
-
-# Filter high priority tasks with a specific tag
-aikanban --json list -p HIGH -t backend
-```
-
 ---
 
 ### 2. `add` - Create a Task
@@ -63,21 +67,11 @@ aikanban --json add "<TITLE>" [options]
 - `-d, --description <TEXT>`: Detailed Markdown task description.
 - `-p, --priority <PRIORITY>`: Task priority (`LOW`, `MEDIUM`, `HIGH`, `URGENT`, default: `MEDIUM`).
 - `-a, --assignee <NAME>`: Assigned user or agent.
-- `-t, --tag <TAG>`: Task tag (repeatable or comma-separated, e.g. `-t bug,backend`).
+- `-t, --tag <TAG>`: Task tag (repeatable or comma-separated).
 - `-s, --status <STATUS>`: Initial board column status (default: `TODO`).
-- `--repo <OWNER/REPO>`: Associated GitHub repository.
-- `--issue <URL>`: Associated GitHub Issue URL.
+- `--repo <OWNER/REPO>`: Associated repository.
+- `--issue <URL>`: Associated Issue URL.
 - `-o, --operator <NAME>`: Operator identifier (default: `cli`).
-
-**Example:**
-```bash
-aikanban --json add "Implement user authentication" \
-  -d "Add JWT token refresh endpoint" \
-  -p HIGH \
-  -t auth,backend \
-  --issue "https://github.com/owner/repo/issues/42" \
-  -o agent-1
-```
 
 ---
 
@@ -86,11 +80,6 @@ Display full metadata, description, and chronological audit history of a task.
 
 ```bash
 aikanban --json show <TASK_ID>
-```
-
-**Example:**
-```bash
-aikanban --json show 42
 ```
 
 ---
@@ -105,15 +94,10 @@ aikanban --json move <TASK_ID> <STATUS> [options]
 **Options:**
 - `-o, --operator <NAME>`: Identifier of the operator making the move (default: `cli`).
 - `-c, --comment <TEXT>`: Comment or rationale for the status transition.
-- `--pr <URL>`: Associated GitHub Pull Request URL.
+- `--pr <URL>`: Associated Pull Request URL.
 - `-a, --assignee <NAME>`: Update assignee during the transition.
 
 **Status Columns (Default):** `TODO`, `IN_PROGRESS`, `REVIEW`, `REQUEST`, `PENDING`, `REOPEN`, `DONE`.
-
-**Example:**
-```bash
-aikanban --json move 42 REVIEW -o agent-1 -c "Completed implementation and passed tests" --pr "https://github.com/owner/repo/pull/50"
-```
 
 ---
 
@@ -129,11 +113,6 @@ aikanban --json claim <AGENT_NAME> [options]
 - `-t, --to <STATUS>`: Target status column to transition to (default: `IN_PROGRESS`).
 - `--tag <TAG>`: Optional tag filter to match.
 
-**Example:**
-```bash
-aikanban --json claim agent-1 --from TODO --to IN_PROGRESS --tag backend
-```
-
 ---
 
 ### 6. `log` - View or Append Task Logs
@@ -147,16 +126,7 @@ aikanban --json log <TASK_ID> [options]
 - `-m, -c, --comment <TEXT>`: Comment or progress log message to append.
 - `-o, --operator <NAME>`: Operator adding the log entry (default: `cli`).
 - `--commit <HASH>`: Associated Git commit hash.
-- `--pr <URL>`: Associated GitHub Pull Request URL.
-
-**Examples:**
-```bash
-# Append progress comment with commit hash
-aikanban --json log 42 -m "Implemented core token validation" --commit "a1b2c3d" -o agent-1
-
-# View all historical logs for task 42
-aikanban --json log 42
-```
+- `--pr <URL>`: Associated Pull Request URL.
 
 ---
 
@@ -173,16 +143,11 @@ aikanban --json update <TASK_ID> [options]
 - `-p, --priority <PRIORITY>`: New task priority (`LOW`, `MEDIUM`, `HIGH`, `URGENT`).
 - `-a, --assignee <NAME>`: New assignee name.
 - `-t, --tag <TAG>`: Replacement tags (repeatable or comma-separated).
-- `--repo <OWNER/REPO>`: New GitHub repository.
-- `--issue <URL>`: New GitHub Issue URL.
-- `--pr <URL>`: New GitHub PR URL.
+- `--repo <OWNER/REPO>`: New repository.
+- `--issue <URL>`: New Issue URL.
+- `--pr <URL>`: New PR URL.
 - `-o, --operator <NAME>`: Operator identifier (default: `cli`).
 - `-c, --comment <TEXT>`: Optional log comment explaining the update.
-
-**Example:**
-```bash
-aikanban --json update 42 --priority URGENT -t auth,critical -o agent-1 -c "Raised priority due to release blocker"
-```
 
 ---
 
@@ -195,63 +160,103 @@ aikanban --json column [subcommand]
 
 **Subcommands:**
 - `column list`: List all board columns with their IDs, order, and terminal flags.
-  ```bash
-  aikanban --json column list
-  ```
-- `column add <ID> <NAME> [options]`: Add a new board column.
-  - `-o, --order <INT>`: Display order index (default: `0`).
-  - `-c, --color <HEX>`: Hex color code (e.g. `#3B82F6`, default: `#6B7280`).
-  - `-t, --terminal`: Mark column as terminal/completion state.
-  ```bash
-  aikanban --json column add QA "Quality Assurance" -o 3 -c "#EC4899"
-  ```
-- `column update <ID> [options]`: Update an existing column.
-  - `-n, --name <NAME>`: New display name.
-  - `-o, --order <INT>`: New display order index.
-  - `-c, --color <HEX>`: New hex color code.
-  - `-t, --terminal <true/false>`: Set terminal/completion status.
-  ```bash
-  aikanban --json column update QA -n "Quality & Staging" -c "#F43F5E"
-  ```
+- `column add <ID> <NAME> [options]`: Add a new board column (`-o <INT>`, `-c <HEX>`, `-t`).
+- `column update <ID> [options]`: Update an existing column (`-n, --name <NAME>`, `-o <INT>`, `-c <HEX>`, `-t <true/false>`).
 - `column delete <ID>`: Delete an empty column.
-  ```bash
-  aikanban --json column delete QA
-  ```
 
 ---
 
-### 9. `sync-github` - Sync GitHub Issues / PRs
-Import and synchronize GitHub issues or a specific issue/PR URL into Kanban tasks.
+### 9. `sync` - Synchronize Issues from VCS Provider
+Vendor-neutral synchronization command that imports issues/PRs into Kanban tasks based on configured or specified provider.
 
 ```bash
-aikanban --json sync-github [REPO_OR_URL] [options]
+aikanban --json sync [REPO_OR_URL] [options]
 ```
 
 **Options:**
-- `--url <URL>`: Specific GitHub issue or pull request URL to sync.
+- `--provider <NAME>`: VCS provider override (`local-git`, `github`).
+- `--url <URL>`: Specific issue or pull request URL to sync.
 - `-s, --state <STATE>`: Issue state filter (`open`, `closed`, `all`, default: `open`).
-- `-t, --tag <LABEL>`: Filter by GitHub label (repeatable or comma-separated).
+- `-t, --tag <LABEL>`: Filter by label (repeatable or comma-separated).
 - `--include-prs`: Include pull requests in synchronization (default: `false`).
 - `-c, --column <STATUS>`: Target Kanban column for open issues (default: `TODO`).
-- `--token <TOKEN>`: GitHub personal access token (or env `GITHUB_TOKEN`).
+- `--token <TOKEN>`: Personal access token (or env `GITHUB_TOKEN`).
 - `--dry-run`: Preview synchronization without writing to the database.
-- `-o, --operator <NAME>`: Operator identifier (default: `cli-github-sync`).
+- `-o, --operator <NAME>`: Operator identifier (default: `cli-sync`).
 
 **Examples:**
 ```bash
-# Sync all open issues from a repository
-aikanban --json sync-github owner/repo -s open --column TODO
+# Sync using default local-git or project config
+aikanban --json sync
 
-# Sync a specific issue by URL
-aikanban --json sync-github --url "https://github.com/owner/repo/issues/42"
+# Sync open issues from GitHub repository
+aikanban --json sync owner/repo --provider github -s open
 
-# Preview sync without saving to database
-aikanban --json sync-github owner/repo --dry-run
+# Sync specific issue URL
+aikanban --json sync --url "https://github.com/owner/repo/issues/42"
+```
+
+*(Note: `sync-github` remains available as a backward-compatible alias).*
+
+---
+
+### 10. `workflow` - Composite Development Workflows
+High-level commands automating multi-step issue, branch, and PR lifecycles.
+
+#### `workflow start-issue`
+Atomically creates an issue (if remote provider), creates a Kanban task in `TODO`, attaches implementation plan, creates & checks out a dedicated Git branch, and logs actions.
+
+```bash
+aikanban --json workflow start-issue "<TITLE>" [options]
+```
+
+**Options:**
+- `-d, --description <TEXT>`: Markdown description.
+- `-p, --priority <PRIORITY>`: Priority (`LOW`, `MEDIUM`, `HIGH`, `URGENT`).
+- `-t, --tag <TAG>`: Tags.
+- `-b, --branch <NAME>`: Dedicated branch name (auto-generated if omitted).
+- `--base <BRANCH>`: Base branch (default: `main`).
+- `--plan <TEXT_OR_FILE>`: Implementation plan markdown text or file path.
+- `-a, --assignee <NAME>`: Assigned user or agent.
+- `--provider <NAME>`: VCS provider override (`local-git`, `github`).
+- `--dry-run`: Preview workflow actions without writing.
+
+**Example:**
+```bash
+aikanban --json workflow start-issue "Implement JWT auth" \
+  -d "Add token refresh" \
+  -p HIGH \
+  -t auth,backend \
+  --plan "path/to/plan.md" \
+  -a agent-1
+```
+
+#### `workflow submit-pr`
+Atomically pushes the branch to remote, creates a Pull Request via the active provider, links the PR URL, and transitions the Kanban task to `REVIEW`.
+
+```bash
+aikanban --json workflow submit-pr <TASK_ID> [options]
+```
+
+**Options:**
+- `--title <TEXT>`: PR title (defaults to task title).
+- `--body <TEXT>`: PR body markdown.
+- `--body-file <FILE>`: File containing PR body markdown.
+- `--head <BRANCH>`: Head branch (defaults to current Git branch).
+- `--base <BRANCH>`: Base branch (default: `main`).
+- `--draft`: Open as draft PR.
+- `--provider <NAME>`: VCS provider override (`local-git`, `github`).
+- `--dry-run`: Preview PR submission without executing.
+
+**Example:**
+```bash
+aikanban --json workflow submit-pr 42 \
+  --body "## Summary\n- Implemented JWT auth\nCloses #42"
 ```
 
 ---
 
-### 10. `serve` - Start Web Dashboard & API Server
+### 11. `serve` - Start Web Dashboard & API Server
 Start the embedded Ktor Web Kanban dashboard, REST API, and real-time SSE server.
 
 ```bash

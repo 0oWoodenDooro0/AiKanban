@@ -26,7 +26,7 @@ jobs:
             artifact_name: aikanban-darwin-arm64
             binary_source: build/native/nativeCompile/aikanban
           - target: darwin-amd64
-            os: macos-13
+            os: macos-15-intel
             artifact_name: aikanban-darwin-amd64
             binary_source: build/native/nativeCompile/aikanban
           - target: windows-amd64

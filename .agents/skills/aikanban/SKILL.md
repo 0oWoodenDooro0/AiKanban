@@ -206,7 +206,13 @@ aikanban --json column [subcommand]
   aikanban --json column add QA "Quality Assurance" -o 3 -c "#EC4899"
   ```
 - `column update <ID> [options]`: Update an existing column.
-  - `--name <NAME>`, `-o, --order <INT>`, `-c, --color <HEX>`, `-t, --terminal`.
+  - `-n, --name <NAME>`: New display name.
+  - `-o, --order <INT>`: New display order index.
+  - `-c, --color <HEX>`: New hex color code.
+  - `-t, --terminal <true/false>`: Set terminal/completion status.
+  ```bash
+  aikanban --json column update QA -n "Quality & Staging" -c "#F43F5E"
+  ```
 - `column delete <ID>`: Delete an empty column.
   ```bash
   aikanban --json column delete QA

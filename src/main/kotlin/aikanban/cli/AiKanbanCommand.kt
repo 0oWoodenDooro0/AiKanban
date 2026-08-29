@@ -8,15 +8,23 @@ import aikanban.cli.command.LogCommand
 import aikanban.cli.command.MoveCommand
 import aikanban.cli.command.ServeCommand
 import aikanban.cli.command.ShowCommand
+import aikanban.cli.command.SyncCommand
 import aikanban.cli.command.SyncGitHubCommand
 import aikanban.cli.command.UpdateCommand
+import aikanban.cli.command.WorkflowCommand
 import aikanban.cli.renderer.JsonRenderer
+import aikanban.config.AiKanbanConfig
+import aikanban.config.AiKanbanConfigLoader
 import aikanban.github.service.DefaultGitHubSyncService
 import aikanban.github.service.GitHubSyncService
+import aikanban.provider.DefaultGitCommandRunner
+import aikanban.provider.ProviderFactory
 import aikanban.repository.SqliteTaskRepository
 import aikanban.service.DefaultKanbanService
 import aikanban.service.KanbanService
 import aikanban.service.exception.KanbanException
+import aikanban.workflow.DefaultKanbanWorkflowService
+import aikanban.workflow.KanbanWorkflowService
 import com.github.ajalt.clikt.completion.completionOption
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.CliktError
@@ -34,6 +42,9 @@ import com.github.ajalt.mordant.terminal.Terminal
 class AiKanbanCommand(
     private val serviceOverride: KanbanService? = null,
     private val gitHubSyncServiceOverride: GitHubSyncService? = null,
+    private val configOverride: AiKanbanConfig? = null,
+    private val providerFactoryOverride: ProviderFactory? = null,
+    private val workflowServiceOverride: KanbanWorkflowService? = null,
     private val terminal: Terminal = Terminal(),
 ) : CliktCommand(name = "aikanban") {
     override fun help(context: Context): String = "AiKanban - Universal CLI Kanban Board for Humans and AI Agents"
@@ -53,6 +64,8 @@ class AiKanbanCommand(
             LogCommand(),
             UpdateCommand(),
             ColumnCommand(),
+            SyncCommand(),
+            WorkflowCommand(),
             SyncGitHubCommand(),
             ServeCommand(),
         )
@@ -60,10 +73,26 @@ class AiKanbanCommand(
 
     override fun run() {
         val service = serviceOverride ?: DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:$db"))
+        val config = configOverride ?: AiKanbanConfigLoader.load()
+        val gitRunner = DefaultGitCommandRunner()
+        val providerFactory = providerFactoryOverride ?: ProviderFactory(service, gitCommandRunner = gitRunner)
+        val workflowService =
+            workflowServiceOverride
+                ?: DefaultKanbanWorkflowService(
+                    kanbanService = service,
+                    providerFactory = providerFactory,
+                    config = config,
+                    gitCommandRunner = gitRunner,
+                )
         val syncService = gitHubSyncServiceOverride ?: DefaultGitHubSyncService(service)
+
         currentContext.findOrSetObject {
             CliContext(
                 service = service,
+                config = config,
+                gitCommandRunner = gitRunner,
+                providerFactory = providerFactory,
+                workflowService = workflowService,
                 gitHubSyncService = syncService,
                 terminal = terminal,
                 jsonOutput = json,

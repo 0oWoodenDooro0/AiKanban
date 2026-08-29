@@ -68,6 +68,7 @@ graalvmNative {
                 "--no-fallback",
                 "-H:+ReportExceptionStackTraces",
                 "-H:IncludeResources=web/.*",
+                "--initialize-at-build-time=kotlin.DeprecationLevel",
             )
         }
     }

@@ -3,6 +3,7 @@ plugins {
     kotlin("plugin.serialization") version "2.1.10"
     id("org.jlleitschuh.gradle.ktlint") version "12.1.2"
     id("com.gradleup.shadow") version "8.3.6"
+    id("org.graalvm.buildtools.native") version "0.10.5"
     application
 }
 
@@ -56,6 +57,23 @@ kotlin {
 
 application {
     mainClass.set("aikanban.MainKt")
+}
+
+graalvmNative {
+    binaries {
+        named("main") {
+            imageName.set("aikanban")
+            mainClass.set("aikanban.MainKt")
+            buildArgs.addAll(
+                "--no-fallback",
+                "-H:+ReportExceptionStackTraces",
+                "-H:IncludeResources=web/.*",
+            )
+        }
+    }
+    metadataRepository {
+        enabled.set(true)
+    }
 }
 
 tasks.test {

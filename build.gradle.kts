@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm") version "2.1.10"
     kotlin("plugin.serialization") version "2.1.10"
     id("org.jlleitschuh.gradle.ktlint") version "12.1.2"
+    id("com.gradleup.shadow") version "8.3.6"
     application
 }
 
@@ -61,5 +62,57 @@ tasks.test {
     useJUnitPlatform()
     testLogging {
         events("passed", "skipped", "failed")
+    }
+}
+
+val buildExecutable by tasks.registering {
+    dependsOn(tasks.named("shadowJar"))
+    group = "distribution"
+    description = "Builds a standalone self-executable CLI binary into build/bin/aikanban"
+
+    val shadowJarTask = tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar")
+    val outputFile = layout.buildDirectory.file("bin/aikanban")
+
+    inputs.file(shadowJarTask.flatMap { it.archiveFile })
+    outputs.file(outputFile)
+
+    doLast {
+        val jarFile = shadowJarTask.get().archiveFile.get().asFile
+        val destFile = outputFile.get().asFile
+        destFile.parentFile.mkdirs()
+
+        val stub = "#!/bin/sh\nexec java -jar \"$0\" \"$@\"\n".toByteArray(Charsets.UTF_8)
+        destFile.outputStream().use { out ->
+            out.write(stub)
+            jarFile.inputStream().use { input ->
+                input.copyTo(out)
+            }
+        }
+        destFile.setExecutable(true, false)
+        println("Generated standalone binary at: ${destFile.absolutePath}")
+    }
+}
+
+tasks.register("installCli") {
+    dependsOn(buildExecutable)
+    group = "distribution"
+    description = "Installs the standalone CLI executable to ~/.local/bin (or custom directory via -PinstallDir=...)"
+
+    doLast {
+        val binDir =
+            if (project.hasProperty("installDir")) {
+                file(project.property("installDir") as String)
+            } else {
+                file("${System.getProperty("user.home")}/.local/bin")
+            }
+        binDir.mkdirs()
+
+        val source = layout.buildDirectory.file("bin/aikanban").get().asFile
+        val target = File(binDir, "aikanban")
+
+        source.copyTo(target, overwrite = true)
+        target.setExecutable(true, false)
+
+        println("✅ Successfully installed aikanban to: ${target.absolutePath}")
     }
 }

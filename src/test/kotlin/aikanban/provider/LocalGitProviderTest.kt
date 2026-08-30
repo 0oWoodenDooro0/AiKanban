@@ -14,6 +14,7 @@ import java.io.File
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LocalGitProviderTest {
@@ -66,6 +67,24 @@ class LocalGitProviderTest {
     @AfterEach
     fun tearDown() {
         service.close()
+    }
+
+    @Test
+    @DisplayName("Should resolve local issue and pull request URIs to ResolvedResource")
+    fun testResolveResource() {
+        val issueRes = provider.resolveResource("local://issue/LOCAL-42")
+        assertNotNull(issueRes)
+        assertEquals("local-git", issueRes.provider)
+        assertEquals(ResourceType.ISSUE, issueRes.type)
+        assertEquals(42, issueRes.number)
+
+        val prRes = provider.resolveResource("local://pull/feature/my-branch")
+        assertNotNull(prRes)
+        assertEquals("local-git", prRes.provider)
+        assertEquals(ResourceType.PULL_REQUEST, prRes.type)
+
+        val invalidRes = provider.resolveResource("https://github.com/org/repo")
+        assertNull(invalidRes)
     }
 
     @Test

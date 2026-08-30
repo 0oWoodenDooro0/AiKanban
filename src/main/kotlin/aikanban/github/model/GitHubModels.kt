@@ -54,11 +54,12 @@ data class GitHubPullRequestRefDto(
 
 @Serializable
 data class GitHubSyncResult(
-    val repo: String,
-    val totalFetched: Int,
-    val createdCount: Int,
-    val updatedCount: Int,
+    val repo: String = "",
+    val totalFetched: Int = 0,
+    val createdCount: Int = 0,
+    val updatedCount: Int = 0,
     val skippedCount: Int = 0,
     val tasks: List<Task> = emptyList(),
     val errors: List<String> = emptyList(),
+    val provider: String = "github",
 )

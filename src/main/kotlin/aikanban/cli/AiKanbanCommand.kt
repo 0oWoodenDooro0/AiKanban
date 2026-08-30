@@ -9,7 +9,6 @@ import aikanban.cli.command.MoveCommand
 import aikanban.cli.command.ServeCommand
 import aikanban.cli.command.ShowCommand
 import aikanban.cli.command.SyncCommand
-import aikanban.cli.command.SyncGitHubCommand
 import aikanban.cli.command.UpdateCommand
 import aikanban.cli.command.WorkflowCommand
 import aikanban.cli.renderer.JsonRenderer
@@ -66,7 +65,6 @@ class AiKanbanCommand(
             ColumnCommand(),
             SyncCommand(),
             WorkflowCommand(),
-            SyncGitHubCommand(),
             ServeCommand(),
         )
     }
@@ -75,7 +73,13 @@ class AiKanbanCommand(
         val service = serviceOverride ?: DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:$db"))
         val config = configOverride ?: AiKanbanConfigLoader.load()
         val gitRunner = DefaultGitCommandRunner()
-        val providerFactory = providerFactoryOverride ?: ProviderFactory(service, gitCommandRunner = gitRunner)
+        val providerFactory =
+            providerFactoryOverride
+                ?: ProviderFactory(
+                    service,
+                    gitCommandRunner = gitRunner,
+                    gitHubSyncService = gitHubSyncServiceOverride,
+                )
         val workflowService =
             workflowServiceOverride
                 ?: DefaultKanbanWorkflowService(

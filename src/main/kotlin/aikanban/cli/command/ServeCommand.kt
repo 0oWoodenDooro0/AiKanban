@@ -25,6 +25,13 @@ class ServeCommand : CliktCommand(name = "serve") {
         cliContext.terminal.println("Starting AiKanban Web Dashboard & API server on http://$host:$port...")
         cliContext.terminal.println("Open http://localhost:$port in your browser to view the Kanban board.")
         cliContext.terminal.println("Press Ctrl+C to stop.")
-        startKanbanServer(port = port, host = host, service = cliContext.service, wait = true)
+        startKanbanServer(
+            port = port,
+            host = host,
+            service = cliContext.service,
+            providerFactory = cliContext.providerFactory,
+            config = cliContext.config,
+            wait = true,
+        )
     }
 }

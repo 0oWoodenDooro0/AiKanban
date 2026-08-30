@@ -8,8 +8,7 @@ import aikanban.api.dto.GitHubSyncResponse
 import aikanban.github.client.GitHubClient
 import aikanban.github.model.GitHubIssueDto
 import aikanban.github.model.GitHubLabelDto
-import aikanban.github.service.DefaultGitHubSyncService
-import aikanban.github.service.GitHubSyncService
+import aikanban.provider.ProviderFactory
 import aikanban.repository.SqliteTaskRepository
 import aikanban.service.DefaultKanbanService
 import aikanban.service.KanbanService
@@ -45,7 +44,7 @@ class GitHubApiTest {
     private lateinit var repository: SqliteTaskRepository
     private lateinit var service: KanbanService
     private lateinit var mockGitHubClient: MockGitHubClient
-    private lateinit var syncService: GitHubSyncService
+    private lateinit var providerFactory: ProviderFactory
 
     private val jsonConfig =
         Json {
@@ -88,7 +87,7 @@ class GitHubApiTest {
         repository = SqliteTaskRepository("jdbc:sqlite:${dbFile.absolutePath}")
         service = DefaultKanbanService(repository)
         mockGitHubClient = MockGitHubClient()
-        syncService = DefaultGitHubSyncService(service, mockGitHubClient)
+        providerFactory = ProviderFactory(kanbanService = service, gitHubClient = mockGitHubClient, workingDir = tempDir.toFile())
     }
 
     @AfterEach
@@ -99,7 +98,7 @@ class GitHubApiTest {
     private fun withGitHubApp(block: suspend ApplicationTestBuilder.(client: HttpClient) -> Unit) =
         testApplication {
             application {
-                kanbanModule(service = service, json = jsonConfig, gitHubSyncService = syncService)
+                kanbanModule(service = service, json = jsonConfig, providerFactory = providerFactory)
             }
             val client =
                 createClient {
@@ -199,7 +198,7 @@ class GitHubApiTest {
     @DisplayName("GitHub URL Resolver Endpoints (/api/github/resolve)")
     inner class ResolveEndpointTests {
         @Test
-        @DisplayName("POST /api/github/resolve should parse GitHub URL to metadata")
+        @DisplayName("POST /api/github/resolve should parse GitHub URL to metadata via Provider")
         fun testResolvePost() =
             withGitHubApp { client ->
                 val req = GitHubResolveRequest(url = "https://github.com/0oWoodenDooro0/AiKanban/issues/6")
@@ -219,7 +218,7 @@ class GitHubApiTest {
             }
 
         @Test
-        @DisplayName("GET /api/github/resolve should parse query param url")
+        @DisplayName("GET /api/github/resolve should parse query param url via Provider")
         fun testResolveGet() =
             withGitHubApp { client ->
                 val response = client.get("/api/github/resolve?url=https://github.com/0oWoodenDooro0/AiKanban/pull/12")

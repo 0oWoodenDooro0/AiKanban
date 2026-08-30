@@ -5,6 +5,23 @@ import aikanban.model.TaskPriority
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class ResourceType {
+    ISSUE,
+    PULL_REQUEST,
+    REPOSITORY,
+}
+
+@Serializable
+data class ResolvedResource(
+    val provider: String,
+    val owner: String? = null,
+    val repo: String? = null,
+    val type: ResourceType,
+    val number: Int? = null,
+    val canonicalUrl: String,
+)
+
+@Serializable
 data class CreateIssueRequest(
     val title: String,
     val body: String = "",
@@ -88,6 +105,8 @@ data class ProviderSyncResult(
 
 interface IssueTrackerProvider {
     val name: String
+
+    fun resolveResource(url: String): ResolvedResource?
 
     suspend fun createIssue(request: CreateIssueRequest): IssueResult
 

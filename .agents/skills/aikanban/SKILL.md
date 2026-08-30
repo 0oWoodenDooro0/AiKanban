@@ -196,8 +196,6 @@ aikanban --json sync owner/repo --provider github -s open
 aikanban --json sync --url "https://github.com/owner/repo/issues/42"
 ```
 
-*(Note: `sync-github` remains available as a backward-compatible alias).*
-
 ---
 
 ### 10. `workflow` - Composite Development Workflows

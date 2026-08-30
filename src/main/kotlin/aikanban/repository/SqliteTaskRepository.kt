@@ -331,6 +331,22 @@ class SqliteTaskRepository(
                 stmt.executeUpdate()
             }
 
+            val existingLogs = getTaskLogs(task.id)
+            if (task.logs.size > existingLogs.size && task.logs.subList(0, existingLogs.size) == existingLogs) {
+                val newLogs = task.logs.subList(existingLogs.size, task.logs.size)
+                newLogs.forEach { logEntry ->
+                    appendLogInternal(task.id, logEntry)
+                }
+            } else if (task.logs != existingLogs) {
+                connection.prepareStatement("DELETE FROM task_logs WHERE task_id = ?;").use { stmt ->
+                    stmt.setInt(1, task.id)
+                    stmt.executeUpdate()
+                }
+                task.logs.forEach { logEntry ->
+                    appendLogInternal(task.id, logEntry)
+                }
+            }
+
             return getTask(task.id) ?: throw IllegalStateException("Task ${task.id} not found after update")
         }
     }
@@ -346,174 +362,6 @@ class SqliteTaskRepository(
                 stmt.setInt(1, id)
                 return stmt.executeUpdate() > 0
             }
-        }
-    }
-
-    override fun claimNextTask(
-        fromStatus: String,
-        toStatus: String,
-        agentName: String,
-        tag: String?,
-    ): Task? {
-        synchronized(lock) {
-            val selectSql =
-                """
-                SELECT id, tags FROM tasks
-                WHERE status = ? AND (assignee IS NULL OR assignee = '')
-                ORDER BY
-                    CASE priority
-                        WHEN 'URGENT' THEN 1
-                        WHEN 'HIGH' THEN 2
-                        WHEN 'MEDIUM' THEN 3
-                        WHEN 'LOW' THEN 4
-                        ELSE 5
-                    END ASC,
-                    created_at ASC;
-                """.trimIndent()
-
-            var targetTaskId: Int? = null
-
-            connection.prepareStatement(selectSql).use { stmt ->
-                stmt.setString(1, fromStatus)
-                val rs = stmt.executeQuery()
-                while (rs.next()) {
-                    val id = rs.getInt("id")
-                    val tagsJson = rs.getString("tags") ?: "[]"
-                    val tags =
-                        try {
-                            json.decodeFromString<Set<String>>(tagsJson)
-                        } catch (_: Exception) {
-                            emptySet()
-                        }
-
-                    if (tag == null || tags.contains(tag)) {
-                        targetTaskId = id
-                        break
-                    }
-                }
-            }
-
-            val taskId = targetTaskId ?: return null
-            val now = System.currentTimeMillis()
-
-            val toCol = getColumn(toStatus)
-            val isTerminal = toCol?.isTerminal == true
-
-            val updateSql =
-                """
-                UPDATE tasks SET
-                    status = ?,
-                    assignee = ?,
-                    updated_at = ?,
-                    completed_at = CASE WHEN ? = 1 THEN ? ELSE NULL END
-                WHERE id = ? AND status = ? AND (assignee IS NULL OR assignee = '');
-                """.trimIndent()
-
-            val rowsAffected =
-                connection.prepareStatement(updateSql).use { stmt ->
-                    stmt.setString(1, toStatus)
-                    stmt.setString(2, agentName)
-                    stmt.setLong(3, now)
-                    stmt.setInt(4, if (isTerminal) 1 else 0)
-                    stmt.setLong(5, now)
-                    stmt.setInt(6, taskId)
-                    stmt.setString(7, fromStatus)
-                    stmt.executeUpdate()
-                }
-
-            if (rowsAffected == 0) {
-                // Task was claimed by another concurrent request in the meantime
-                return null
-            }
-
-            appendLogInternal(
-                taskId = taskId,
-                entry =
-                    TaskLogEntry(
-                        timestamp = now,
-                        operator = agentName,
-                        fromStatus = fromStatus,
-                        toStatus = toStatus,
-                        comment = "Task claimed by $agentName",
-                    ),
-            )
-
-            return getTask(taskId)
-        }
-    }
-
-    override fun moveTask(
-        taskId: Int,
-        toStatus: String,
-        operator: String,
-        comment: String?,
-        prUrl: String?,
-        assignee: String?,
-    ): Task {
-        synchronized(lock) {
-            val currentTask = getTask(taskId) ?: throw IllegalArgumentException("Task $taskId not found")
-            val fromStatus = currentTask.status
-            val targetColumn = getColumn(toStatus)
-            val isTerminal = targetColumn?.isTerminal == true
-
-            val now = System.currentTimeMillis()
-            val newCompletedAt: Long? =
-                when {
-                    isTerminal -> currentTask.completedAt ?: now
-                    else -> null
-                }
-            val newAssignee = assignee ?: currentTask.assignee
-            val newPrUrl = prUrl ?: currentTask.githubPrUrl
-
-            val updateSql =
-                """
-                UPDATE tasks SET
-                    status = ?,
-                    assignee = ?,
-                    github_pr_url = ?,
-                    updated_at = ?,
-                    completed_at = ?
-                WHERE id = ?;
-                """.trimIndent()
-
-            connection.prepareStatement(updateSql).use { stmt ->
-                stmt.setString(1, toStatus)
-                stmt.setString(2, newAssignee)
-                stmt.setString(3, newPrUrl)
-                stmt.setLong(4, now)
-                if (newCompletedAt != null) {
-                    stmt.setLong(5, newCompletedAt)
-                } else {
-                    stmt.setNull(5, java.sql.Types.INTEGER)
-                }
-                stmt.setInt(6, taskId)
-                stmt.executeUpdate()
-            }
-
-            val logComment = comment ?: "Status changed from $fromStatus to $toStatus"
-            appendLogInternal(
-                taskId = taskId,
-                entry =
-                    TaskLogEntry(
-                        timestamp = now,
-                        operator = operator,
-                        fromStatus = fromStatus,
-                        toStatus = toStatus,
-                        comment = logComment,
-                        prUrl = prUrl,
-                    ),
-            )
-
-            return getTask(taskId) ?: throw IllegalStateException("Failed to load moved task $taskId")
-        }
-    }
-
-    override fun appendLog(
-        taskId: Int,
-        entry: TaskLogEntry,
-    ) {
-        synchronized(lock) {
-            appendLogInternal(taskId, entry)
         }
     }
 

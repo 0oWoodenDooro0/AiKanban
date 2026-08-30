@@ -8,6 +8,9 @@ import aikanban.service.exception.ColumnNotFoundException
 import aikanban.service.exception.ColumnValidationException
 import aikanban.service.exception.TaskNotFoundException
 import aikanban.service.exception.TaskValidationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.AfterEach
@@ -17,6 +20,11 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -623,5 +631,90 @@ class DefaultKanbanServiceTest {
             assertTrue(collectedEvents.any { it is KanbanEvent.ColumnUpdated && it.column.name == "QA & Verification" })
             assertTrue(collectedEvents.any { it is KanbanEvent.TaskDeleted && it.taskId == task.id })
             assertTrue(collectedEvents.any { it is KanbanEvent.ColumnDeleted && it.columnId == "QA" })
+        }
+
+    // ==========================================
+    // 8. High-Concurrency Multi-Agent Claims
+    // ==========================================
+
+    @Test
+    @DisplayName("High-concurrency test: 20 concurrent workers claiming 10 tasks without race conditions")
+    fun testConcurrentClaimingNoDuplicate() {
+        val taskCount = 10
+        val createdTasks =
+            (1..taskCount).map { i ->
+                service.createTask(title = "Concurrent Task $i", status = "TODO", priority = TaskPriority.MEDIUM)
+            }
+        assertEquals(taskCount, createdTasks.size)
+
+        val workerCount = 20
+        val executor = Executors.newFixedThreadPool(workerCount)
+        val startLatch = CountDownLatch(1)
+        val doneLatch = CountDownLatch(workerCount)
+
+        val claimedTaskIds = ConcurrentHashMap.newKeySet<Int>()
+        val successfulClaims = AtomicInteger(0)
+
+        for (i in 1..workerCount) {
+            val agentName = "agent-$i"
+            executor.submit {
+                try {
+                    startLatch.await()
+                    val claimed =
+                        service.claimNextTask(
+                            fromStatus = "TODO",
+                            toStatus = "IN_PROGRESS",
+                            agentName = agentName,
+                        )
+                    if (claimed != null) {
+                        successfulClaims.incrementAndGet()
+                        claimedTaskIds.add(claimed.id)
+                    }
+                } finally {
+                    doneLatch.countDown()
+                }
+            }
+        }
+
+        // Trigger all workers simultaneously
+        startLatch.countDown()
+        val finishedInTime = doneLatch.await(10, TimeUnit.SECONDS)
+        executor.shutdown()
+        executor.awaitTermination(5, TimeUnit.SECONDS)
+
+        assertTrue(finishedInTime, "All workers should finish within timeout")
+        assertEquals(taskCount, successfulClaims.get(), "Exactly $taskCount tasks should be claimed")
+        assertEquals(taskCount, claimedTaskIds.size, "All claimed task IDs must be unique (no duplicate claims)")
+
+        // Verify in DB that 0 tasks remain in TODO and all 10 are IN_PROGRESS
+        val remainingTodo = service.listTasks(status = "TODO")
+        val inProgressTasks = service.listTasks(status = "IN_PROGRESS")
+        assertEquals(0, remainingTodo.size)
+        assertEquals(taskCount, inProgressTasks.size)
+    }
+
+    @Test
+    @DisplayName("Coroutines concurrency test: concurrent claims and moves")
+    fun testCoroutinesConcurrency() =
+        runBlocking {
+            val taskCount = 15
+            (1..taskCount).forEach { i ->
+                service.createTask(title = "Coroutine Task $i", status = "TODO")
+            }
+
+            val results =
+                (1..30).map { i ->
+                    async(Dispatchers.IO) {
+                        service.claimNextTask(
+                            fromStatus = "TODO",
+                            toStatus = "IN_PROGRESS",
+                            agentName = "async-agent-$i",
+                        )
+                    }
+                }.awaitAll()
+
+            val nonNullClaims = results.filterNotNull()
+            assertEquals(taskCount, nonNullClaims.size)
+            assertEquals(taskCount, nonNullClaims.map { it.id }.toSet().size)
         }
 }

@@ -11,6 +11,31 @@ class LocalGitProvider(
 
     private val localIssueCounter = AtomicInteger(1)
 
+    override fun resolveResource(url: String): ResolvedResource? {
+        if (url.startsWith("local://issue/")) {
+            val id = url.removePrefix("local://issue/")
+            val number = id.removePrefix("LOCAL-").toIntOrNull()
+            return ResolvedResource(
+                provider = name,
+                owner = null,
+                repo = "local",
+                type = ResourceType.ISSUE,
+                number = number,
+                canonicalUrl = url,
+            )
+        } else if (url.startsWith("local://pull/")) {
+            return ResolvedResource(
+                provider = name,
+                owner = null,
+                repo = "local",
+                type = ResourceType.PULL_REQUEST,
+                number = null,
+                canonicalUrl = url,
+            )
+        }
+        return null
+    }
+
     override suspend fun createIssue(request: CreateIssueRequest): IssueResult {
         val issueNumber = localIssueCounter.getAndIncrement()
         val localId = "LOCAL-$issueNumber"

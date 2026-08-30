@@ -102,7 +102,7 @@ class AiKanbanCliTest {
             assertTrue(result.stdout.contains("log"))
             assertTrue(result.stdout.contains("update"))
             assertTrue(result.stdout.contains("column"))
-            assertTrue(result.stdout.contains("sync-github"))
+            assertTrue(result.stdout.contains("sync"))
             assertTrue(result.stdout.contains("--generate-completion"))
         }
 
@@ -698,12 +698,12 @@ class AiKanbanCliTest {
     }
 
     // ==========================================
-    // 10. Sync-GitHub Command Tests
+    // 10. Sync Command Tests
     // ==========================================
 
     @Nested
-    @DisplayName("Sync GitHub Command")
-    inner class SyncGitHubCommandTests {
+    @DisplayName("Sync Command")
+    inner class SyncCommandTests {
         @Test
         @DisplayName("Should sync issues from repository in human format")
         fun testSyncGitHubHuman() {
@@ -721,7 +721,7 @@ class AiKanbanCliTest {
             )
             gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
 
-            val result = execute("sync-github", "myorg/myrepo")
+            val result = execute("sync", "myorg/myrepo", "--provider", "github")
             assertEquals(0, result.exitCode)
             assertTrue(result.stdout.contains("CLI Synced Issue") || result.stdout.contains("Synced"))
 
@@ -745,9 +745,9 @@ class AiKanbanCliTest {
             )
             gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
 
-            val result = execute("sync-github", "myorg/myrepo", "--json")
+            val result = execute("sync", "myorg/myrepo", "--provider", "github", "--json")
             assertEquals(0, result.exitCode)
-            val syncResult = json.decodeFromString<aikanban.github.model.GitHubSyncResult>(result.stdout)
+            val syncResult = json.decodeFromString<aikanban.provider.ProviderSyncResult>(result.stdout)
             assertEquals("myorg/myrepo", syncResult.repo)
             assertEquals(1, syncResult.createdCount)
             assertEquals(1, syncResult.tasks.size)
@@ -768,9 +768,9 @@ class AiKanbanCliTest {
             )
             gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
 
-            val result = execute("sync-github", "--url", "https://github.com/myorg/myrepo/issues/50", "--dry-run", "--json")
+            val result = execute("sync", "--url", "https://github.com/myorg/myrepo/issues/50", "--dry-run", "--json")
             assertEquals(0, result.exitCode)
-            val syncResult = json.decodeFromString<aikanban.github.model.GitHubSyncResult>(result.stdout)
+            val syncResult = json.decodeFromString<aikanban.provider.ProviderSyncResult>(result.stdout)
             assertEquals(1, syncResult.totalFetched)
             assertEquals(1, syncResult.createdCount)
             assertEquals(0, service.listTasks().size) // dry run: 0 in DB

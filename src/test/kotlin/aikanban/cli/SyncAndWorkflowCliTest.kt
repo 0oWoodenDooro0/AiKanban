@@ -121,6 +121,16 @@ class SyncAndWorkflowCliTest {
             val syncResult = json.decodeFromString<ProviderSyncResult>(result.stdout)
             assertEquals("local-git", syncResult.provider)
         }
+
+        @Test
+        @DisplayName("Should execute sync command with github provider in dry-run mode")
+        fun testSyncGitHubCli() {
+            val result = execute("sync", "owner/repo", "--provider", "github", "--dry-run", "--json")
+            assertEquals(0, result.exitCode)
+            val syncResult = json.decodeFromString<ProviderSyncResult>(result.stdout)
+            assertEquals("github", syncResult.provider)
+            assertEquals("owner/repo", syncResult.repo)
+        }
     }
 
     @Nested

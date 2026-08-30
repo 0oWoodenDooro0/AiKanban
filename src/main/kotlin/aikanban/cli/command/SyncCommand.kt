@@ -45,7 +45,7 @@ class SyncCommand : CliktCommand(name = "sync") {
         val targetRepo = repo?.trim()
         val target = targetUrl ?: targetRepo
 
-        val activeProvider = cliContext.providerFactory.resolve(provider, cliContext.config)
+        val activeProvider = cliContext.providerFactory.resolve(provider, cliContext.config, target)
 
         val result =
             runBlocking {

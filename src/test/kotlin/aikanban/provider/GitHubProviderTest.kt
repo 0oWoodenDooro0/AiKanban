@@ -3,8 +3,8 @@ package aikanban.provider
 import aikanban.github.client.GitHubClient
 import aikanban.github.model.GitHubIssueDto
 import aikanban.github.model.GitHubLabelDto
-import aikanban.github.service.DefaultGitHubSyncService
 import aikanban.model.TaskPriority
+import aikanban.provider.ingestion.DefaultIssueIngestionPipeline
 import aikanban.repository.SqliteTaskRepository
 import aikanban.service.DefaultKanbanService
 import aikanban.service.KanbanService
@@ -18,6 +18,7 @@ import java.io.File
 import java.nio.file.Path
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class GitHubProviderTest {
@@ -59,14 +60,14 @@ class GitHubProviderTest {
         service = DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:${dbFile.absolutePath}"))
         fakeClient = FakeGitHubClient()
         fakeGitRunner = LocalGitProviderTest.FakeGitCommandRunner()
-        val syncService = DefaultGitHubSyncService(service, fakeClient)
         provider =
             GitHubProvider(
                 kanbanService = service,
-                gitHubSyncService = syncService,
+                gitHubClient = fakeClient,
                 gitCommandRunner = fakeGitRunner,
                 workingDir = tempDir.toFile(),
                 defaultRepo = "owner/repo",
+                ingestionPipeline = DefaultIssueIngestionPipeline(service),
             )
     }
 
@@ -76,7 +77,32 @@ class GitHubProviderTest {
     }
 
     @Test
-    @DisplayName("Should sync issues from GitHub repository via GitHubSyncService")
+    @DisplayName("Should resolve GitHub URLs to canonical ResolvedResource metadata")
+    fun testResolveResource() {
+        val issueRes = provider.resolveResource("https://github.com/0oWoodenDooro0/AiKanban/issues/6")
+        assertNotNull(issueRes)
+        assertEquals("github", issueRes.provider)
+        assertEquals("0oWoodenDooro0", issueRes.owner)
+        assertEquals("AiKanban", issueRes.repo)
+        assertEquals(ResourceType.ISSUE, issueRes.type)
+        assertEquals(6, issueRes.number)
+
+        val prRes = provider.resolveResource("https://github.com/0oWoodenDooro0/AiKanban/pull/12")
+        assertNotNull(prRes)
+        assertEquals(ResourceType.PULL_REQUEST, prRes.type)
+        assertEquals(12, prRes.number)
+
+        val repoRes = provider.resolveResource("https://github.com/0oWoodenDooro0/AiKanban")
+        assertNotNull(repoRes)
+        assertEquals(ResourceType.REPOSITORY, repoRes.type)
+        assertNull(repoRes.number)
+
+        val invalidRes = provider.resolveResource("not-a-valid-url")
+        assertNull(invalidRes)
+    }
+
+    @Test
+    @DisplayName("Should sync issues from GitHub repository via direct ingestion")
     fun testSyncGitHubRepository() =
         runBlocking {
             fakeClient.issues.add(
@@ -105,6 +131,33 @@ class GitHubProviderTest {
             assertEquals(1, result.tasks.size)
             assertEquals("GitHub Sync Issue", result.tasks.first().title)
             assertEquals(TaskPriority.HIGH, result.tasks.first().priority)
+        }
+
+    @Test
+    @DisplayName("Should sync a single issue when URL is provided in sync request")
+    fun testSyncSingleIssueUrl() =
+        runBlocking {
+            fakeClient.issues.add(
+                GitHubIssueDto(
+                    id = 12,
+                    number = 99,
+                    title = "Single Targeted Issue",
+                    body = "Details",
+                    state = "open",
+                    htmlUrl = "https://github.com/owner/repo/issues/99",
+                ),
+            )
+
+            val syncReq =
+                ProviderSyncRequest(
+                    repoOrUrl = "https://github.com/owner/repo/issues/99",
+                    dryRun = false,
+                )
+
+            val result = provider.sync(syncReq)
+            assertEquals("github", result.provider)
+            assertEquals(1, result.createdCount)
+            assertEquals("Single Targeted Issue", result.tasks.first().title)
         }
 
     @Test

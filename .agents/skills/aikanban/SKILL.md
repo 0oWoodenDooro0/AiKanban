@@ -212,20 +212,29 @@ aikanban --json workflow start-issue "<TITLE>" [options]
 - `-d, --description <TEXT>`: Markdown description.
 - `-p, --priority <PRIORITY>`: Priority (`LOW`, `MEDIUM`, `HIGH`, `URGENT`).
 - `-t, --tag <TAG>`: Tags.
-- `-b, --branch <NAME>`: Dedicated branch name (auto-generated if omitted).
-- `--base <BRANCH>`: Base branch (default: `main`).
+- `-b, --branch <NAME>`: Dedicated branch name (auto-generated from title if omitted).
+- `--base <BRANCH>`: Base branch (default: `main` or config).
 - `--plan <TEXT_OR_FILE>`: Implementation plan markdown text or file path.
 - `-a, --assignee <NAME>`: Assigned user or agent.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
-- `--dry-run`: Preview workflow actions without writing.
+- `--dry-run`: Preview workflow actions without writing to DB or running Git commands.
+- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+**Lifecycle & Internal Execution Steps:**
+1. **Provider & Branch Resolution**: Resolves VCS provider (`github`, `local-git`) from `.aikanban.json` or `--provider` flag. Resolves branch name (uses `-b` or auto-generates `<branchPrefix><slugified-title>`).
+2. **Issue Creation**: Creates remote issue on GitHub (`gh issue create`) or creates local issue record (`local://issue/...`).
+3. **Kanban Task Creation**: Inserts new task into SQLite database with status `TODO`, priority, tags, assignee, description, and linked issue URL.
+4. **Plan Attachment**: If `--plan` is provided, posts the plan as a comment to the remote issue and records an audit log on the Kanban task.
+5. **Branch Creation & Checkout**: Creates and switches to the dedicated Git development branch (attempts GitHub `gh issue develop` issue-branch linking or `git checkout -b <branch> <base>`).
+6. **Audit Logging**: Appends `"Created and switched to branch <branch>"` to task history.
 
 **Example:**
 ```bash
-aikanban --json workflow start-issue "Implement JWT auth" \
-  -d "Add token refresh" \
+aikanban --json workflow start-issue "feat(auth): JWT authentication" \
+  -d "Implement token refresh provider" \
   -p HIGH \
   -t auth,backend \
-  --plan "path/to/plan.md" \
+  --plan "/path/to/implementation_plan.md" \
   -a agent-1
 ```
 
@@ -240,16 +249,25 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - `--title <TEXT>`: PR title (defaults to task title).
 - `--body <TEXT>`: PR body markdown.
 - `--body-file <FILE>`: File containing PR body markdown.
-- `--head <BRANCH>`: Head branch (defaults to current Git branch).
-- `--base <BRANCH>`: Base branch (default: `main`).
+- `--head <BRANCH>`: Head branch (defaults to current active Git branch).
+- `--base <BRANCH>`: Base branch (default: `main` or config).
 - `--draft`: Open as draft PR.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
-- `--dry-run`: Preview PR submission without executing.
+- `--dry-run`: Preview PR submission without executing Git push or DB transition.
+- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+**Lifecycle & Internal Execution Steps:**
+1. **Task & Context Lookup**: Queries task by `<TASK_ID>` from SQLite DB. Automatically detects head branch (current Git branch) and base branch (`defaultBaseBranch` or `main`).
+2. **Provider Resolution**: Automatically determines Git provider (`github`, `local-git`) based on configuration.
+3. **Branch Push**: Executes `git push -u origin <head>` to push the feature branch to upstream remote repository.
+4. **PR/MR Creation**: Creates Pull Request on GitHub (`gh pr create` with `--title`, `--body`/`--body-file`, `--draft`) or local PR reference (`local://pull/<head>`).
+5. **Kanban Transition & Association**: Transitions Kanban task from `IN_PROGRESS` to `REVIEW`, records `pr_url`, and logs `"Submitted pull request: <PR_URL>"` in the audit history.
 
 **Example:**
 ```bash
 aikanban --json workflow submit-pr 42 \
-  --body "## Summary\n- Implemented JWT auth\nCloses #42"
+  --title "feat(auth): implement token refresh" \
+  --body "## 📝 Summary\n- Added JWT refresh provider\n\nCloses #42"
 ```
 
 ---

@@ -1,6 +1,7 @@
 package aikanban.workflow
 
 import aikanban.config.AiKanbanConfig
+import aikanban.model.Task
 import aikanban.model.TaskPriority
 import aikanban.provider.LocalGitProviderTest
 import aikanban.provider.ProviderFactory
@@ -259,5 +260,179 @@ class KanbanWorkflowServiceTest {
 
             assertEquals("IN_PROGRESS", started.status)
             assertEquals("main", fakeGitRunner.currentBranch) // Remains on main
+        }
+
+    @Test
+    @DisplayName("Should correctly extract issue number from various URL and ID formats")
+    fun testExtractIssueNumber() {
+        assertEquals(39, DefaultKanbanWorkflowService.extractIssueNumber("https://github.com/0oWoodenDooro0/AiKanban/issues/39"))
+        assertEquals(100, DefaultKanbanWorkflowService.extractIssueNumber("https://github.com/owner/repo/issues/100/"))
+        assertEquals(42, DefaultKanbanWorkflowService.extractIssueNumber("https://gitlab.com/group/repo/-/issues/42"))
+        assertEquals(7, DefaultKanbanWorkflowService.extractIssueNumber("local://issue/LOCAL-7"))
+        assertEquals(15, DefaultKanbanWorkflowService.extractIssueNumber("local://issue/15"))
+        assertEquals(88, DefaultKanbanWorkflowService.extractIssueNumber("#88"))
+        assertEquals(99, DefaultKanbanWorkflowService.extractIssueNumber("99"))
+        kotlin.test.assertNull(DefaultKanbanWorkflowService.extractIssueNumber(null))
+        kotlin.test.assertNull(DefaultKanbanWorkflowService.extractIssueNumber(""))
+        kotlin.test.assertNull(DefaultKanbanWorkflowService.extractIssueNumber("   "))
+        kotlin.test.assertNull(DefaultKanbanWorkflowService.extractIssueNumber("https://github.com/owner/repo"))
+    }
+
+    @Test
+    @DisplayName("Should correctly extract Markdown checklist items from text")
+    fun testExtractChecklist() {
+        val markdown =
+            """
+            ## Summary
+            Some text
+            
+            ## Tasks
+            - [ ] Task 1: Initialize module
+            - [x] Task 2: Write tests
+            * [ ] Task 3: Implement feature
+            1. [X] Task 4: Complete docs
+            
+            Regular list:
+            - Just an item
+            * Another item
+            """.trimIndent()
+
+        val checklist = DefaultKanbanWorkflowService.extractChecklist(markdown)
+        assertEquals(4, checklist.size)
+        assertEquals("- [ ] Task 1: Initialize module", checklist[0])
+        assertEquals("- [x] Task 2: Write tests", checklist[1])
+        assertEquals("* [ ] Task 3: Implement feature", checklist[2])
+        assertEquals("1. [X] Task 4: Complete docs", checklist[3])
+
+        assertTrue(DefaultKanbanWorkflowService.extractChecklist("No checklist here").isEmpty())
+    }
+
+    @Test
+    @DisplayName("Should build PR body falling back to task description and appending Closes #N when request body is null")
+    fun testBuildPrBodyWithNullBodyAndTaskDescription() {
+        val task =
+            Task(
+                id = 1,
+                title = "Feature Task",
+                description = "## Summary\nImplemented feature\n\n## Tasks\n- [x] Step 1",
+                githubIssueUrl = "https://github.com/0oWoodenDooro0/AiKanban/issues/39",
+            )
+
+        val rendered = DefaultKanbanWorkflowService.buildPrBody(null, task)
+        assertTrue(rendered.contains("## Summary\nImplemented feature"))
+        assertTrue(rendered.contains("- [x] Step 1"))
+        assertTrue(rendered.endsWith("Closes #39"))
+    }
+
+    @Test
+    @DisplayName("Should build PR body extracting checklist from description and appending Closes #N when custom body lacks checklist")
+    fun testBuildPrBodyWithCustomBodyAndTaskDescriptionChecklist() {
+        val task =
+            Task(
+                id = 2,
+                title = "Feature Task",
+                description = "## Summary\nOriginal task\n\n## Tasks\n- [ ] Task 1\n- [x] Task 2",
+                githubIssueUrl = "https://github.com/0oWoodenDooro0/AiKanban/issues/39",
+            )
+
+        val rendered = DefaultKanbanWorkflowService.buildPrBody("## Custom PR Body\nFeature ready for review", task)
+        assertTrue(rendered.contains("## Custom PR Body\nFeature ready for review"))
+        assertTrue(rendered.contains("## Checklist"))
+        assertTrue(rendered.contains("- [ ] Task 1"))
+        assertTrue(rendered.contains("- [x] Task 2"))
+        assertTrue(rendered.endsWith("Closes #39"))
+    }
+
+    @Test
+    @DisplayName("Should not duplicate Closes #N if PR body or description already contains Closes, Resolves, or Fixes keyword")
+    fun testBuildPrBodyDoesNotDuplicateExistingClosesOrResolves() {
+        val task =
+            Task(
+                id = 3,
+                title = "Fix bug",
+                githubIssueUrl = "https://github.com/0oWoodenDooro0/AiKanban/issues/39",
+            )
+
+        val withCloses = DefaultKanbanWorkflowService.buildPrBody("## Summary\nFixed bug\n\nCloses #39", task)
+        assertEquals("## Summary\nFixed bug\n\nCloses #39", withCloses.trim())
+
+        val withResolves = DefaultKanbanWorkflowService.buildPrBody("## Summary\nFixed bug\n\nResolves #39", task)
+        assertEquals("## Summary\nFixed bug\n\nResolves #39", withResolves.trim())
+
+        val withFixes = DefaultKanbanWorkflowService.buildPrBody("## Summary\nFixed bug\n\nFixes #39", task)
+        assertEquals("## Summary\nFixed bug\n\nFixes #39", withFixes.trim())
+    }
+
+    @Test
+    @DisplayName("Should not append Closes #N when task has no githubIssueUrl")
+    fun testBuildPrBodyWithoutIssueUrl() {
+        val task =
+            Task(
+                id = 4,
+                title = "Offline Feature",
+                description = "Offline task description",
+                githubIssueUrl = null,
+            )
+
+        val rendered = DefaultKanbanWorkflowService.buildPrBody("Custom PR Body", task)
+        assertEquals("Custom PR Body", rendered)
+    }
+
+    @Test
+    @DisplayName("Should submit PR end-to-end with auto-linked issue number and checklist attached to PR request")
+    fun testSubmitPrEndToEndWithIssueLinkingAndChecklist() =
+        runBlocking {
+            val localProvider = aikanban.provider.LocalGitProvider(gitCommandRunner = fakeGitRunner, workingDir = tempDir.toFile())
+            var capturedRequest: aikanban.provider.CreatePullRequestRequest? = null
+            val recordingProvider =
+                object : aikanban.provider.IssueTrackerProvider by localProvider {
+                    override suspend fun createPullRequest(
+                        request: aikanban.provider.CreatePullRequestRequest,
+                    ): aikanban.provider.PullRequestResult {
+                        capturedRequest = request
+                        return localProvider.createPullRequest(request)
+                    }
+                }
+
+            val workflowWithRecording =
+                DefaultKanbanWorkflowService(
+                    kanbanService = service,
+                    providerFactory = providerFactory,
+                    config = AiKanbanConfig(provider = "local-git", defaultBaseBranch = "main"),
+                    gitCommandRunner = fakeGitRunner,
+                    providerOverride = recordingProvider,
+                )
+
+            val task =
+                service.createTask(
+                    title = "End To End PR Task",
+                    description = "## Description\nTask details\n\n- [ ] Subtask 1\n- [x] Subtask 2",
+                    githubIssueUrl = "https://github.com/0oWoodenDooro0/AiKanban/issues/39",
+                    status = "IN_PROGRESS",
+                    assignee = "agent-1",
+                )
+            fakeGitRunner.currentBranch = "feature/e2e-pr-test"
+
+            val request =
+                SubmitPrRequest(
+                    taskId = task.id,
+                    title = "feat: submit pr with issue link",
+                    body = "## Summary\nImplemented e2e feature",
+                    headBranch = "feature/e2e-pr-test",
+                    baseBranch = "main",
+                )
+
+            val result = workflowWithRecording.submitPr(request)
+
+            assertNotNull(capturedRequest)
+            assertTrue(capturedRequest!!.body.contains("## Summary\nImplemented e2e feature"))
+            assertTrue(capturedRequest!!.body.contains("## Checklist"))
+            assertTrue(capturedRequest!!.body.contains("- [ ] Subtask 1"))
+            assertTrue(capturedRequest!!.body.contains("- [x] Subtask 2"))
+            assertTrue(capturedRequest!!.body.endsWith("Closes #39"))
+
+            val updatedTask = service.getTask(task.id)
+            assertEquals("REVIEW", updatedTask.status)
+            assertEquals(result.pr.url, updatedTask.githubPrUrl)
         }
 }

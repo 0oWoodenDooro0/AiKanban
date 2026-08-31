@@ -285,7 +285,7 @@ aikanban --json workflow start-issue "feat(auth): JWT authentication" \
 ```
 
 #### `workflow submit-pr`
-Atomically push Git branch, execute `pre-submit-pr` hooks, create Pull Request via active provider, transition task to `REVIEW`, and execute `post-submit-pr` hooks.
+Atomically push Git branch, execute `pre-submit-pr` hooks, enrich PR body (auto-extract task checklists and auto-append `Closes #<Number>` from linked issue URL), create Pull Request via active provider, transition task to `REVIEW`, and execute `post-submit-pr` hooks.
 
 ```bash
 aikanban --json workflow submit-pr <TASK_ID> [options]
@@ -293,7 +293,7 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 
 **Options:**
 - `--title <TEXT>`: PR title (defaults to task title).
-- `--body <TEXT>`: PR body markdown.
+- `--body <TEXT>`: PR body markdown (if omitted, defaults to task description; if provided without a checklist, automatically injects task checklist items from task description).
 - `--body-file <FILE>`: File containing PR body markdown.
 - `--head <BRANCH>`: Head branch (defaults to task `branch` or current active Git branch).
 - `--base <BRANCH>`: Base branch (default: `main` or config).
@@ -301,6 +301,10 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `--dry-run`: Preview PR submission without executing Git push or DB transition.
 - `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+**Automatic Enriched Body Features:**
+- **Issue Auto-Linking**: Automatically parses `githubIssueUrl` / Issue ID and appends `Closes #<Number>` (or avoids duplication if `Closes`, `Resolves`, or `Fixes` is already present).
+- **Checklist Extraction**: Automatically extracts Markdown task checklists (`- [ ]`, `- [x]`, `* [ ]`, `1. [X]`) from the task description and injects them under `## Checklist` into custom PR bodies.
 
 #### `workflow start-review`
 Start a code review session: automatically resolves the target task in `REVIEW` status, executes `pre-start-review` hooks, checks out the dedicated feature branch locally, appends a review start audit log, and executes `post-start-review` hooks.

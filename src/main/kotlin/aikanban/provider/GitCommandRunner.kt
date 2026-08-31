@@ -18,6 +18,12 @@ interface GitCommandRunner {
         workingDir: File? = null,
     ): GitProcessResult
 
+    fun createBranchOnly(
+        branchName: String,
+        baseBranch: String = "main",
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
     fun pushBranch(
         branchName: String,
         remote: String = "origin",
@@ -86,6 +92,14 @@ class DefaultGitCommandRunner(
         workingDir: File?,
     ): GitProcessResult {
         return runProcess(listOf("git", "checkout", "-b", branchName, baseBranch), workingDir)
+    }
+
+    override fun createBranchOnly(
+        branchName: String,
+        baseBranch: String,
+        workingDir: File?,
+    ): GitProcessResult {
+        return runProcess(listOf("git", "branch", branchName, baseBranch), workingDir)
     }
 
     override fun pushBranch(

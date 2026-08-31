@@ -233,7 +233,7 @@ aikanban --json sync --url "https://github.com/owner/repo/issues/42"
 High-level commands automating multi-step issue, branch, and PR lifecycles.
 
 #### `workflow start-issue`
-Atomically creates an issue (if remote provider), creates a Kanban task in `TODO`, attaches implementation plan, creates & checks out a dedicated Git branch, and logs actions.
+Atomically creates an issue (if remote provider), creates a Kanban task in `TODO`, attaches implementation plan, creates a dedicated Git development branch (preserving the current workspace branch), and logs actions.
 
 ```bash
 aikanban --json workflow start-issue "<TITLE>" [options]
@@ -256,8 +256,8 @@ aikanban --json workflow start-issue "<TITLE>" [options]
 2. **Issue Creation**: Creates remote issue on GitHub (`gh issue create`) or creates local issue record (`local://issue/...`).
 3. **Kanban Task Creation**: Inserts new task into SQLite database with status `TODO`, priority, tags, assignee, description, and linked issue URL.
 4. **Plan Attachment**: If `--plan` is provided, posts the plan as a comment to the remote issue and records an audit log on the Kanban task.
-5. **Branch Creation & Checkout**: Creates and switches to the dedicated Git development branch (attempts GitHub `gh issue develop` issue-branch linking or `git checkout -b <branch> <base>`).
-6. **Audit Logging**: Appends `"Created and switched to branch <branch>"` to task history.
+5. **Branch Creation**: Creates the dedicated Git development branch without switching to it (via GitHub `gh issue develop` issue-branch linking or `git branch <branch> <base>`), preserving the active workspace branch.
+6. **Audit Logging**: Appends `"Created branch <branch>"` to task history.
 
 **Example:**
 ```bash

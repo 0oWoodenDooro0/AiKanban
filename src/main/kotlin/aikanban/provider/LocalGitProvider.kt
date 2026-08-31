@@ -53,7 +53,7 @@ class LocalGitProvider(
     }
 
     override suspend fun createBranch(request: CreateBranchRequest): BranchResult {
-        val result = gitCommandRunner.createAndCheckoutBranch(request.branchName, request.baseBranch, workingDir)
+        val result = gitCommandRunner.createBranchOnly(request.branchName, request.baseBranch, workingDir)
         return BranchResult(
             branchName = request.branchName,
             baseBranch = request.baseBranch,

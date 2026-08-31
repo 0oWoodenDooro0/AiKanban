@@ -166,7 +166,7 @@ class SyncAndWorkflowCliTest {
     @DisplayName("Workflow Command Tests")
     inner class WorkflowCommandTests {
         @Test
-        @DisplayName("Should execute workflow start-issue in human mode")
+        @DisplayName("Should execute workflow start-issue in human mode without changing branch")
         fun testStartIssueHuman() {
             val result =
                 execute(
@@ -187,6 +187,7 @@ class SyncAndWorkflowCliTest {
             assertEquals(0, result.exitCode)
             assertTrue(result.stdout.contains("New Workflow Feature"))
             assertTrue(result.stdout.contains("feature/cli-workflow"))
+            assertEquals("main", fakeGitRunner.currentBranch)
 
             val task = service.listTasks().firstOrNull()
             assertNotNull(task)
@@ -196,7 +197,7 @@ class SyncAndWorkflowCliTest {
         }
 
         @Test
-        @DisplayName("Should execute workflow start-issue in JSON mode")
+        @DisplayName("Should execute workflow start-issue in JSON mode without changing branch")
         fun testStartIssueJson() {
             val result =
                 execute(
@@ -210,6 +211,7 @@ class SyncAndWorkflowCliTest {
             assertEquals("JSON Workflow Task", startResult.task.title)
             assertNotNull(startResult.branch)
             assertNotNull(startResult.issue)
+            assertEquals("main", fakeGitRunner.currentBranch)
         }
 
         @Test

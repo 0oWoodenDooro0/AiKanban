@@ -283,7 +283,8 @@ class GitHubProvider(
     }
 
     override suspend fun requestChangesPullRequest(request: RequestChangesPullRequestRequest): Boolean {
-        val ghArgs = mutableListOf("pr", "review", request.prNumberOrUrl, "--request-changes", "--body", request.comment)
+        val commentBody = request.comment.ifBlank { "Changes requested" }
+        val ghArgs = mutableListOf("pr", "review", request.prNumberOrUrl, "--request-changes", "--body", commentBody)
         if (!defaultRepo.isNullOrBlank() && !request.prNumberOrUrl.startsWith("http")) {
             ghArgs.addAll(listOf("--repo", defaultRepo))
         }

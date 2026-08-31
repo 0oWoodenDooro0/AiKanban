@@ -4,6 +4,7 @@ import aikanban.config.AiKanbanConfig
 import aikanban.model.Task
 import aikanban.model.TaskPriority
 import aikanban.provider.AddIssueCommentRequest
+import aikanban.provider.ApprovePullRequestRequest
 import aikanban.provider.BranchResult
 import aikanban.provider.CreateBranchRequest
 import aikanban.provider.CreateIssueRequest
@@ -605,6 +606,15 @@ class DefaultKanbanWorkflowService(
         val targetBase = request.targetBaseBranch ?: config.defaultBaseBranch.ifBlank { "main" }
         val prUrl = task.githubPrUrl
         val shouldDelete = request.deleteBranch ?: (request.merge && config.workflow.deleteBranchOnMerge)
+
+        if (!prUrl.isNullOrBlank()) {
+            provider.approvePullRequest(
+                ApprovePullRequestRequest(
+                    prNumberOrUrl = prUrl,
+                    comment = request.comment,
+                ),
+            )
+        }
 
         if (request.merge) {
             if (!prUrl.isNullOrBlank()) {

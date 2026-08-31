@@ -656,4 +656,129 @@ class WorkflowReviewEnhancementsTest {
                 assertTrue(fakeGitRunner.deletedBranches.any { it.first == "feature/full-lifecycle-feature" })
             }
     }
+
+    @Nested
+    @DisplayName("Remote PR Review Verdict Sync Tests")
+    inner class RemotePrReviewSyncTests {
+        @Test
+        @DisplayName("completeReview with githubPrUrl invokes provider.approvePullRequest with prUrl and comment")
+        fun testCompleteReviewApprovesRemotePullRequest() =
+            runBlocking {
+                val task =
+                    service.createTask(
+                        title = "PR Review Sync Task",
+                        status = "REVIEW",
+                    )
+                service.updateTask(task.id, githubPrUrl = "https://github.com/0oWoodenDooro0/AiKanban/pull/45")
+
+                val req =
+                    CompleteReviewWorkflowRequest(
+                        taskId = task.id,
+                        comment = "LGTM: approved!",
+                        merge = false,
+                    )
+
+                val result = workflowService.completeReview(req, tempDir.toFile())
+
+                assertEquals("DONE", result.task.status)
+                assertEquals(1, fakeProvider.approvedPrs.size)
+                val approvedPr = fakeProvider.approvedPrs.first()
+                assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/45", approvedPr.prNumberOrUrl)
+                assertEquals("LGTM: approved!", approvedPr.comment)
+                assertEquals(0, fakeProvider.mergedPrs.size)
+            }
+
+        @Test
+        @DisplayName("completeReview with merge=true also approves PR before/during merging")
+        fun testCompleteReviewWithMergeAlsoApprovesPr() =
+            runBlocking {
+                val task =
+                    service.createTask(
+                        title = "PR Review Merge Sync Task",
+                        status = "REVIEW",
+                    )
+                service.updateTask(task.id, githubPrUrl = "https://github.com/0oWoodenDooro0/AiKanban/pull/45")
+
+                val req =
+                    CompleteReviewWorkflowRequest(
+                        taskId = task.id,
+                        comment = "LGTM and merged",
+                        merge = true,
+                    )
+
+                val result = workflowService.completeReview(req, tempDir.toFile())
+
+                assertEquals("DONE", result.task.status)
+                assertTrue(result.merged)
+                assertEquals(1, fakeProvider.approvedPrs.size)
+                assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/45", fakeProvider.approvedPrs.first().prNumberOrUrl)
+                assertEquals("LGTM and merged", fakeProvider.approvedPrs.first().comment)
+                assertEquals(1, fakeProvider.mergedPrs.size)
+                assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/45", fakeProvider.mergedPrs.first().prNumberOrUrl)
+            }
+
+        @Test
+        @DisplayName("completeReview without githubPrUrl skips provider.approvePullRequest")
+        fun testCompleteReviewSkipsRemoteReviewWhenNoPrUrl() =
+            runBlocking {
+                val task = service.createTask(title = "Local review task", status = "REVIEW")
+
+                val req =
+                    CompleteReviewWorkflowRequest(
+                        taskId = task.id,
+                        comment = "Local approval",
+                        merge = false,
+                    )
+
+                val result = workflowService.completeReview(req, tempDir.toFile())
+
+                assertEquals("DONE", result.task.status)
+                assertEquals(0, fakeProvider.approvedPrs.size)
+            }
+
+        @Test
+        @DisplayName("requestChanges with githubPrUrl invokes provider.requestChangesPullRequest with prUrl and comment")
+        fun testRequestChangesSubmitsRemoteRequestChangesReview() =
+            runBlocking {
+                val task =
+                    service.createTask(
+                        title = "Rework Required Task",
+                        status = "REVIEW",
+                    )
+                service.updateTask(task.id, githubPrUrl = "https://github.com/0oWoodenDooro0/AiKanban/pull/45")
+
+                val req =
+                    RequestChangesWorkflowRequest(
+                        taskId = task.id,
+                        comment = "Please fix broken unit tests and format code",
+                        operator = "lead-reviewer",
+                    )
+
+                val result = workflowService.requestChanges(req)
+
+                assertEquals("REQUEST", result.task.status)
+                assertEquals(1, fakeProvider.requestedChangesPrs.size)
+                val reqChanges = fakeProvider.requestedChangesPrs.first()
+                assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/45", reqChanges.prNumberOrUrl)
+                assertEquals("Please fix broken unit tests and format code", reqChanges.comment)
+            }
+
+        @Test
+        @DisplayName("requestChanges without githubPrUrl skips provider.requestChangesPullRequest")
+        fun testRequestChangesSkipsRemoteReviewWhenNoPrUrl() =
+            runBlocking {
+                val task = service.createTask(title = "Local rework task", status = "REVIEW")
+
+                val req =
+                    RequestChangesWorkflowRequest(
+                        taskId = task.id,
+                        comment = "Local change request",
+                    )
+
+                val result = workflowService.requestChanges(req)
+
+                assertEquals("REQUEST", result.task.status)
+                assertEquals(0, fakeProvider.requestedChangesPrs.size)
+            }
+    }
 }

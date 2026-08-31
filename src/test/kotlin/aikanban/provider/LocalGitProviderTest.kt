@@ -43,6 +43,15 @@ class LocalGitProviderTest {
             return GitProcessResult(0, "Switched to a new branch '$branchName'", "")
         }
 
+        override fun createBranchOnly(
+            branchName: String,
+            baseBranch: String,
+            workingDir: File?,
+        ): GitProcessResult {
+            createdBranches.add(branchName to baseBranch)
+            return GitProcessResult(0, "Created branch '$branchName'", "")
+        }
+
         override fun pushBranch(
             branchName: String,
             remote: String,
@@ -122,7 +131,7 @@ class LocalGitProviderTest {
         }
 
     @Test
-    @DisplayName("Should create and checkout local branch via GitCommandRunner")
+    @DisplayName("Should create local branch without checking it out via GitCommandRunner")
     fun testCreateBranch() =
         runBlocking {
             val request =
@@ -138,7 +147,7 @@ class LocalGitProviderTest {
             assertTrue(result.created)
             assertEquals(1, fakeGitRunner.createdBranches.size)
             assertEquals("feature/local-offline-task" to "main", fakeGitRunner.createdBranches.first())
-            assertEquals("feature/local-offline-task", fakeGitRunner.currentBranch)
+            assertEquals("main", fakeGitRunner.currentBranch)
         }
 
     @Test

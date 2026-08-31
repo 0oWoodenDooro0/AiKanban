@@ -48,12 +48,36 @@ class LocalGitProvider(
         )
     }
 
+    override suspend fun updateIssue(request: UpdateIssueRequest): IssueResult {
+        return IssueResult(
+            id = request.issueIdOrUrl,
+            title = request.title ?: "",
+            url = request.issueIdOrUrl,
+            body = request.body,
+        )
+    }
+
+    override suspend fun approvePullRequest(request: ApprovePullRequestRequest): Boolean = true
+
+    override suspend fun requestChangesPullRequest(request: RequestChangesPullRequestRequest): Boolean = true
+
+    override suspend fun mergePullRequest(request: MergePullRequestRequest): Boolean {
+        if (request.prNumberOrUrl.startsWith("local://pull/")) {
+            val branch = request.prNumberOrUrl.removePrefix("local://pull/")
+            gitCommandRunner.mergeBranch(branch, squash = request.mergeMethod.equals("squash", ignoreCase = true), workingDir = workingDir)
+            if (request.deleteBranch) {
+                gitCommandRunner.deleteBranch(branch, force = true, workingDir = workingDir)
+            }
+        }
+        return true
+    }
+
     override suspend fun addComment(request: AddIssueCommentRequest): Boolean {
         return true
     }
 
     override suspend fun createBranch(request: CreateBranchRequest): BranchResult {
-        val result = gitCommandRunner.createAndCheckoutBranch(request.branchName, request.baseBranch, workingDir)
+        val result = gitCommandRunner.createBranchOnly(request.branchName, request.baseBranch, workingDir)
         return BranchResult(
             branchName = request.branchName,
             baseBranch = request.baseBranch,

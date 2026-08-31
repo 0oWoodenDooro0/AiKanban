@@ -55,7 +55,7 @@ class KanbanWorkflowServiceTest {
     }
 
     @Test
-    @DisplayName("Should execute startIssue workflow: issue creation, kanban task, plan comment, branch checkout, logs")
+    @DisplayName("Should execute startIssue workflow: issue creation, kanban task, plan comment, branch creation, logs")
     fun testStartIssueFullWorkflow() =
         runBlocking {
             val request =
@@ -84,20 +84,20 @@ class KanbanWorkflowServiceTest {
             assertNotNull(result.issue)
             assertEquals("Implement Pluggable Providers", result.issue.title)
 
-            // 3. Branch created and checked out
+            // 3. Branch created without checkout
             assertNotNull(result.branch)
             assertEquals("feature/provider-arch", result.branch.branchName)
-            assertEquals("feature/provider-arch", fakeGitRunner.currentBranch)
+            assertEquals("main", fakeGitRunner.currentBranch)
 
             // 4. Verify Kanban audit logs contain creation, plan, and branch logs
             val taskInDb = service.getTask(result.task.id)
             assertTrue(taskInDb.logs.any { it.comment.contains("Task created") })
             assertTrue(taskInDb.logs.any { it.comment.contains("Attached implementation plan") })
-            assertTrue(taskInDb.logs.any { it.comment.contains("Created and switched to branch") })
+            assertTrue(taskInDb.logs.any { it.comment.contains("Created branch feature/provider-arch") })
         }
 
     @Test
-    @DisplayName("Should auto-generate clean branch name from title if branch is omitted in startIssue")
+    @DisplayName("Should auto-generate clean branch name from title without checkout in startIssue")
     fun testStartIssueAutoGenerateBranch() =
         runBlocking {
             val request =
@@ -108,7 +108,7 @@ class KanbanWorkflowServiceTest {
 
             val result = workflowService.startIssue(request)
             assertEquals("feature/feat-auth-add-jwt-token-refresh-endpoint", result.branch.branchName)
-            assertEquals("feature/feat-auth-add-jwt-token-refresh-endpoint", fakeGitRunner.currentBranch)
+            assertEquals("main", fakeGitRunner.currentBranch)
         }
 
     @Test

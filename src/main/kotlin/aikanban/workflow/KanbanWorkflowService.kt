@@ -11,8 +11,12 @@ import aikanban.provider.CreatePullRequestRequest
 import aikanban.provider.DefaultGitCommandRunner
 import aikanban.provider.GitCommandRunner
 import aikanban.provider.IssueResult
+import aikanban.provider.IssueTrackerProvider
+import aikanban.provider.MergePullRequestRequest
 import aikanban.provider.ProviderFactory
 import aikanban.provider.PullRequestResult
+import aikanban.provider.RequestChangesPullRequestRequest
+import aikanban.provider.UpdateIssueRequest
 import aikanban.service.KanbanService
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -58,6 +62,69 @@ data class SubmitPrResult(
     val task: Task,
     val pr: PullRequestResult,
 )
+
+@Serializable
+data class StartReviewRequest(
+    val taskId: Int? = null,
+    val operator: String = "workflow",
+    val checkoutBranch: Boolean = true,
+)
+
+@Serializable
+data class StartReviewResult(
+    val task: Task,
+    val branchName: String?,
+    val prUrl: String?,
+    val executedHooks: List<CommandExecutionResult> = emptyList(),
+)
+
+@Serializable
+data class RequestChangesWorkflowRequest(
+    val taskId: Int,
+    val comment: String,
+    val operator: String = "workflow",
+    val providerName: String? = null,
+)
+
+typealias RequestChangesRequest = RequestChangesWorkflowRequest
+
+@Serializable
+data class RequestChangesWorkflowResult(
+    val task: Task,
+    val comment: String,
+    val prUrl: String?,
+)
+
+typealias RequestChangesResult = RequestChangesWorkflowResult
+
+@Serializable
+data class CompleteReviewWorkflowRequest(
+    val taskId: Int,
+    val merge: Boolean = false,
+    val comment: String? = null,
+    val operator: String = "workflow",
+    val providerName: String? = null,
+    val verify: Boolean = false,
+    val checkoutBase: Boolean = true,
+    val deleteBranch: Boolean? = null,
+    val pullBase: Boolean = false,
+    val targetBaseBranch: String? = null,
+)
+
+typealias CompleteReviewRequest = CompleteReviewWorkflowRequest
+
+@Serializable
+data class CompleteReviewWorkflowResult(
+    val task: Task,
+    val merged: Boolean,
+    val prUrl: String?,
+    val baseBranch: String? = null,
+    val deletedBranch: String? = null,
+    val verificationPassed: Boolean? = null,
+    val executedHooks: List<CommandExecutionResult> = emptyList(),
+)
+
+typealias CompleteReviewResult = CompleteReviewWorkflowResult
 
 @Serializable
 data class CommandExecutionResult(
@@ -179,6 +246,23 @@ interface KanbanWorkflowService {
 
     suspend fun submitPr(request: SubmitPrRequest): SubmitPrResult
 
+    suspend fun startReview(
+        request: StartReviewRequest,
+        workingDir: File? = null,
+    ): StartReviewResult
+
+    suspend fun requestChanges(request: RequestChangesWorkflowRequest): RequestChangesWorkflowResult
+
+    suspend fun completeReview(
+        request: CompleteReviewWorkflowRequest,
+        workingDir: File? = null,
+    ): CompleteReviewWorkflowResult
+
+    suspend fun syncTaskRemote(
+        taskId: Int,
+        providerOverride: IssueTrackerProvider? = null,
+    ): Task
+
     suspend fun runVerify(
         commands: List<String>? = null,
         workingDir: File? = null,
@@ -206,6 +290,7 @@ class DefaultKanbanWorkflowService(
     private val config: AiKanbanConfig = AiKanbanConfig(),
     private val gitCommandRunner: GitCommandRunner = DefaultGitCommandRunner(),
     private val shellCommandRunner: ShellCommandRunner = DefaultShellCommandRunner(),
+    private val providerOverride: IssueTrackerProvider? = null,
 ) : KanbanWorkflowService {
     companion object {
         fun slugify(text: String): String {
@@ -247,7 +332,7 @@ class DefaultKanbanWorkflowService(
     }
 
     override suspend fun startIssue(request: StartIssueRequest): StartIssueResult {
-        val provider = providerFactory.resolve(request.providerName, config)
+        val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
         val branchName =
             request.branchName?.trim()?.takeIf { it.isNotBlank() }
                 ?: "${config.branchPrefix}${slugify(request.title)}"
@@ -326,7 +411,7 @@ class DefaultKanbanWorkflowService(
         kanbanService.addComment(
             taskId = task.id,
             operator = request.operator,
-            comment = "Created and switched to branch $branchName",
+            comment = "Created branch $branchName",
         )
 
         return StartIssueResult(
@@ -337,7 +422,7 @@ class DefaultKanbanWorkflowService(
     }
 
     override suspend fun submitPr(request: SubmitPrRequest): SubmitPrResult {
-        val provider = providerFactory.resolve(request.providerName, config)
+        val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
         val task = kanbanService.getTask(request.taskId)
 
         val headBranch =
@@ -399,6 +484,211 @@ class DefaultKanbanWorkflowService(
             task = updatedTask,
             pr = prResult,
         )
+    }
+
+    override suspend fun startReview(
+        request: StartReviewRequest,
+        workingDir: File?,
+    ): StartReviewResult {
+        val dir = workingDir ?: File(".")
+        val targetTask =
+            if (request.taskId != null) {
+                kanbanService.getTask(request.taskId)
+            } else {
+                val reviewColumn = config.workflow.reviewColumn.ifBlank { "REVIEW" }
+                val tasks = kanbanService.listTasks(status = reviewColumn)
+                tasks.firstOrNull() ?: throw IllegalArgumentException("No tasks currently in $reviewColumn status for review.")
+            }
+
+        val preHooks = config.hooks["pre-start-review"] ?: emptyList()
+        val executedHooks = mutableListOf<CommandExecutionResult>()
+        for (hook in preHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+            if (!res.success) {
+                throw IllegalStateException(
+                    "Pre-start-review hook failed: $hook (exit code ${res.exitCode}): ${res.stderr.ifBlank { res.stdout }}",
+                )
+            }
+        }
+
+        val branchName = resolveTaskBranch(targetTask, dir, fallbackToGenerated = true)
+        if (request.checkoutBranch && branchName != null && gitCommandRunner.isGitRepository(dir)) {
+            gitCommandRunner.checkoutBranch(branchName, createIfMissing = false, workingDir = dir)
+        }
+
+        kanbanService.addComment(
+            taskId = targetTask.id,
+            operator = request.operator,
+            comment = "Started code review${branchName?.let { " on branch $it" } ?: ""}",
+        )
+
+        val postHooks = config.hooks["post-start-review"] ?: emptyList()
+        for (hook in postHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+        }
+
+        val updatedTask = kanbanService.getTask(targetTask.id)
+        return StartReviewResult(
+            task = updatedTask,
+            branchName = branchName,
+            prUrl = targetTask.githubPrUrl,
+            executedHooks = executedHooks,
+        )
+    }
+
+    override suspend fun requestChanges(request: RequestChangesWorkflowRequest): RequestChangesWorkflowResult {
+        val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
+        val task = kanbanService.getTask(request.taskId)
+        val requestColumn = config.workflow.requestColumn.ifBlank { "REQUEST" }
+
+        val updatedTask =
+            kanbanService.moveTask(
+                taskId = task.id,
+                toStatus = requestColumn,
+                operator = request.operator,
+                comment = "Changes requested: ${request.comment}",
+            )
+
+        val prUrl = task.githubPrUrl
+        if (!prUrl.isNullOrBlank()) {
+            provider.requestChangesPullRequest(
+                RequestChangesPullRequestRequest(
+                    prNumberOrUrl = prUrl,
+                    comment = request.comment,
+                ),
+            )
+        }
+
+        return RequestChangesWorkflowResult(
+            task = updatedTask,
+            comment = request.comment,
+            prUrl = prUrl,
+        )
+    }
+
+    override suspend fun completeReview(
+        request: CompleteReviewWorkflowRequest,
+        workingDir: File?,
+    ): CompleteReviewWorkflowResult {
+        val dir = workingDir ?: File(".")
+        val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
+        val task = kanbanService.getTask(request.taskId)
+        val doneColumn = config.workflow.doneColumn.ifBlank { "DONE" }
+
+        val shouldVerify = request.verify || config.workflow.requireVerification
+        var verificationPassed: Boolean? = null
+        if (shouldVerify) {
+            val verifyRes = runVerify(workingDir = dir)
+            if (!verifyRes.success) {
+                throw IllegalStateException(
+                    "Review completion blocked by quality verification failure: ${verifyRes.message}",
+                )
+            }
+            verificationPassed = true
+        }
+
+        val executedHooks = mutableListOf<CommandExecutionResult>()
+        val preHooks = config.hooks["pre-complete-review"] ?: emptyList()
+        for (hook in preHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+            if (!res.success) {
+                throw IllegalStateException(
+                    "Pre-complete-review hook failed: $hook (exit code ${res.exitCode}): ${res.stderr.ifBlank { res.stdout }}",
+                )
+            }
+        }
+
+        val resolvedBranch = resolveTaskBranch(task, dir)
+        val targetBase = request.targetBaseBranch ?: config.defaultBaseBranch.ifBlank { "main" }
+        val prUrl = task.githubPrUrl
+        val shouldDelete = request.deleteBranch ?: (request.merge && config.workflow.deleteBranchOnMerge)
+
+        if (request.merge) {
+            if (!prUrl.isNullOrBlank()) {
+                provider.mergePullRequest(
+                    MergePullRequestRequest(
+                        prNumberOrUrl = prUrl,
+                        mergeMethod = config.workflow.mergeMethod,
+                        deleteBranch = shouldDelete,
+                    ),
+                )
+            } else if (resolvedBranch != null && gitCommandRunner.isGitRepository(dir)) {
+                gitCommandRunner.mergeBranch(
+                    resolvedBranch,
+                    squash = config.workflow.mergeMethod.equals("squash", ignoreCase = true),
+                    workingDir = dir,
+                )
+            }
+        }
+
+        var baseBranchResult: String? = null
+        if (request.checkoutBase && gitCommandRunner.isGitRepository(dir)) {
+            gitCommandRunner.checkoutBranch(targetBase, createIfMissing = false, workingDir = dir)
+            if (request.pullBase) {
+                gitCommandRunner.pull("origin", targetBase, dir)
+            }
+            baseBranchResult = targetBase
+        }
+
+        var deletedBranchResult: String? = null
+        if (shouldDelete && resolvedBranch != null && resolvedBranch != targetBase) {
+            if (gitCommandRunner.isGitRepository(dir)) {
+                if (gitCommandRunner.getCurrentBranch(dir) == resolvedBranch) {
+                    gitCommandRunner.checkoutBranch(targetBase, createIfMissing = false, workingDir = dir)
+                }
+                val delRes = gitCommandRunner.deleteBranch(resolvedBranch, force = true, remote = false, workingDir = dir)
+                if (delRes.exitCode == 0) {
+                    deletedBranchResult = resolvedBranch
+                }
+            }
+        }
+
+        val logComment = request.comment ?: if (request.merge) "Review approved and merged" else "Review approved"
+        val updatedTask =
+            kanbanService.moveTask(
+                taskId = task.id,
+                toStatus = doneColumn,
+                operator = request.operator,
+                comment = logComment,
+            )
+
+        val postHooks = config.hooks["post-complete-review"] ?: emptyList()
+        for (hook in postHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+        }
+
+        return CompleteReviewWorkflowResult(
+            task = updatedTask,
+            merged = request.merge,
+            prUrl = prUrl,
+            baseBranch = baseBranchResult,
+            deletedBranch = deletedBranchResult,
+            verificationPassed = verificationPassed,
+            executedHooks = executedHooks,
+        )
+    }
+
+    override suspend fun syncTaskRemote(
+        taskId: Int,
+        providerOverride: IssueTrackerProvider?,
+    ): Task {
+        val task = kanbanService.getTask(taskId)
+        val target = task.githubIssueUrl ?: task.githubRepo
+        if (!target.isNullOrBlank()) {
+            val provider = providerOverride ?: this.providerOverride ?: providerFactory.resolve(null, config)
+            provider.updateIssue(
+                UpdateIssueRequest(
+                    issueIdOrUrl = target,
+                    title = task.title,
+                    body = task.description,
+                ),
+            )
+        }
+        return task
     }
 
     override suspend fun runVerify(

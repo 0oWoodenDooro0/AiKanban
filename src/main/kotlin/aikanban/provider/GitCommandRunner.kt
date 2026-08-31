@@ -18,6 +18,12 @@ interface GitCommandRunner {
         workingDir: File? = null,
     ): GitProcessResult
 
+    fun createBranchOnly(
+        branchName: String,
+        baseBranch: String = "main",
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
     fun pushBranch(
         branchName: String,
         remote: String = "origin",
@@ -29,6 +35,26 @@ interface GitCommandRunner {
         branchName: String,
         createIfMissing: Boolean = false,
         baseBranch: String? = null,
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun deleteBranch(
+        branchName: String,
+        force: Boolean = false,
+        remote: Boolean = false,
+        remoteName: String = "origin",
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun mergeBranch(
+        branchName: String,
+        squash: Boolean = false,
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun pull(
+        remote: String = "origin",
+        branch: String? = null,
         workingDir: File? = null,
     ): GitProcessResult = GitProcessResult(0, "", "")
 
@@ -95,19 +121,12 @@ class DefaultGitCommandRunner(
         return runProcess(listOf("git", "checkout", "-b", branchName, baseBranch), workingDir)
     }
 
-    override fun pushBranch(
+    override fun createBranchOnly(
         branchName: String,
-        remote: String,
-        setUpstream: Boolean,
+        baseBranch: String,
         workingDir: File?,
     ): GitProcessResult {
-        val args =
-            if (setUpstream) {
-                listOf("git", "push", "-u", remote, branchName)
-            } else {
-                listOf("git", "push", remote, branchName)
-            }
-        return runProcess(args, workingDir)
+        return runProcess(listOf("git", "branch", branchName, baseBranch), workingDir)
     }
 
     override fun checkoutBranch(
@@ -125,6 +144,59 @@ class DefaultGitCommandRunner(
                 }
             } else {
                 listOf("git", "checkout", branchName)
+            }
+        return runProcess(args, workingDir)
+    }
+
+    override fun deleteBranch(
+        branchName: String,
+        force: Boolean,
+        remote: Boolean,
+        remoteName: String,
+        workingDir: File?,
+    ): GitProcessResult {
+        return if (remote) {
+            runProcess(listOf("git", "push", remoteName, "--delete", branchName), workingDir)
+        } else {
+            val flag = if (force) "-D" else "-d"
+            runProcess(listOf("git", "branch", flag, branchName), workingDir)
+        }
+    }
+
+    override fun mergeBranch(
+        branchName: String,
+        squash: Boolean,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args =
+            if (squash) {
+                listOf("git", "merge", "--squash", branchName)
+            } else {
+                listOf("git", "merge", branchName)
+            }
+        return runProcess(args, workingDir)
+    }
+
+    override fun pull(
+        remote: String,
+        branch: String?,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args = if (branch != null) listOf("git", "pull", remote, branch) else listOf("git", "pull", remote)
+        return runProcess(args, workingDir)
+    }
+
+    override fun pushBranch(
+        branchName: String,
+        remote: String,
+        setUpstream: Boolean,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args =
+            if (setUpstream) {
+                listOf("git", "push", "-u", remote, branchName)
+            } else {
+                listOf("git", "push", remote, branchName)
             }
         return runProcess(args, workingDir)
     }

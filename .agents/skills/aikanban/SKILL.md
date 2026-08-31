@@ -49,6 +49,10 @@ AiKanban supports layered configuration with OS-native global config directories
   "hooks": {
     "pre-submit-pr": ["./gradlew check"],
     "post-submit-pr": ["echo PR created"],
+    "pre-start-review": ["git fetch origin"],
+    "post-start-review": ["echo Review started"],
+    "pre-complete-review": ["./gradlew check"],
+    "post-complete-review": ["echo Review completed"],
     "pre-commit": ["./gradlew ktlintFormat"],
     "post-commit": ["echo Commit recorded"]
   },
@@ -60,6 +64,13 @@ AiKanban supports layered configuration with OS-native global config directories
         "./gradlew buildExecutable"
       ]
     }
+  },
+  "workflow": {
+    "mergeMethod": "squash",
+    "deleteBranchOnMerge": true,
+    "requestColumn": "REQUEST",
+    "doneColumn": "DONE",
+    "reviewColumn": "REVIEW"
   }
 }
 ```
@@ -162,7 +173,7 @@ aikanban --json log <TASK_ID> [options]
 ---
 
 ### 7. `update` - Update Task Metadata
-Modify task fields and properties.
+Modify task fields and properties. Automatically synchronizes title and description changes with the associated remote issue tracker (GitHub / GitLab) if the task is linked to an external issue, unless `--no-sync` is specified.
 
 ```bash
 aikanban --json update <TASK_ID> [options]
@@ -177,6 +188,7 @@ aikanban --json update <TASK_ID> [options]
 - `--repo <OWNER/REPO>`: New repository.
 - `--issue <URL>`: New Issue URL.
 - `--pr <URL>`: New PR URL.
+- `--no-sync`: Skip synchronizing updates to remote issue tracker (for offline or local-only updates).
 - `-o, --operator <NAME>`: Operator identifier (default: `cli`).
 - `-c, --comment <TEXT>`: Optional log comment explaining the update.
 
@@ -236,7 +248,7 @@ High-level commands automating multi-step issue, branch, and PR lifecycles.
 Atomically creates an issue (if remote provider), creates a Kanban task in `TODO`, attaches implementation plan, creates & checks out a dedicated Git branch, and logs actions.
 
 ```bash
-aikanban --json workflow start-issue "<TITLE>" [options]
+aikanban --json workflow start-issue [TITLE] [options]
 ```
 
 **Options:**
@@ -246,6 +258,9 @@ aikanban --json workflow start-issue "<TITLE>" [options]
 - `-b, --branch <NAME>`: Dedicated branch name (auto-generated from title if omitted).
 - `--base <BRANCH>`: Base branch (default: `main` or config).
 - `--plan <TEXT_OR_FILE>`: Implementation plan markdown text or file path.
+- `--from-plan <FILE>`: Path to Markdown implementation plan file (auto-extracts title, description, tags, and attaches plan).
+- `--push`: Automatically push newly created branch to remote with upstream tracking (`git push -u origin <branch>`).
+- `--no-checkout`: Create dedicated branch without switching the working workspace branch away from current branch.
 - `-a, --assignee <NAME>`: Assigned user or agent.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `--dry-run`: Preview workflow actions without writing to DB or running Git commands.
@@ -255,8 +270,8 @@ aikanban --json workflow start-issue "<TITLE>" [options]
 1. **Provider & Branch Resolution**: Resolves VCS provider (`github`, `local-git`) from `.aikanban.json` or `--provider` flag. Resolves branch name (uses `-b` or auto-generates `<branchPrefix><slugified-title>`).
 2. **Issue Creation**: Creates remote issue on GitHub (`gh issue create`) or creates local issue record (`local://issue/...`).
 3. **Kanban Task Creation**: Inserts new task into SQLite database with status `TODO`, priority, tags, assignee, description, and linked issue URL.
-4. **Plan Attachment**: If `--plan` is provided, posts the plan as a comment to the remote issue and records an audit log on the Kanban task.
-5. **Branch Creation & Checkout**: Creates and switches to the dedicated Git development branch (attempts GitHub `gh issue develop` issue-branch linking or `git checkout -b <branch> <base>`).
+4. **Plan Attachment**: If `--plan` or `--from-plan` is provided, posts the plan as a comment to the remote issue and records an audit log on the Kanban task.
+5. **Branch Creation & Push**: Creates the dedicated Git development branch (with optional remote `--push` and optional `--no-checkout`).
 6. **Audit Logging**: Appends `"Created and switched to branch <branch>"` to task history.
 
 **Example:**
@@ -266,6 +281,7 @@ aikanban --json workflow start-issue "feat(auth): JWT authentication" \
   -p HIGH \
   -t auth,backend \
   --plan "/path/to/implementation_plan.md" \
+  --push \
   -a agent-1
 ```
 
@@ -285,6 +301,43 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - `--draft`: Open as draft PR.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `--dry-run`: Preview PR submission without executing Git push or DB transition.
+- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+#### `workflow start-review`
+Start code review for a task: auto-resolves first task in `REVIEW` column if ID is omitted, executes `pre-start-review` hooks, checks out feature branch locally, records audit log, and executes `post-start-review` hooks.
+
+```bash
+aikanban --json workflow start-review [TASK_ID] [options]
+```
+
+**Options:**
+- `--no-checkout`: Skip checking out feature branch locally.
+- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+#### `workflow request-changes`
+Request revisions/changes on a review task: transitions task to `REQUEST` (or configured `workflow.requestColumn`), appends feedback comment/log, and submits change request to remote PR (GitHub / GitLab).
+
+```bash
+aikanban --json workflow request-changes <TASK_ID> -m "<COMMENT>" [options]
+```
+
+**Options:**
+- `-m, --message <TEXT>`: Review comments or rework requirements.
+- `--body-file <PATH>`: Path to file containing review comments.
+- `--provider <NAME>`: VCS provider override (`local-git`, `github`).
+- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+#### `workflow complete-review`
+Complete review and approve: executes `pre-complete-review` hooks, optionally merges PR / branch using configured `workflow.mergeMethod` (if `--merge` is specified), transitions task to `DONE` (or configured `workflow.doneColumn`), and executes `post-complete-review` hooks.
+
+```bash
+aikanban --json workflow complete-review <TASK_ID> [options]
+```
+
+**Options:**
+- `--merge`: Automatically approve and merge PR / feature branch.
+- `-m, --message <TEXT>`: Approval summary or audit comment.
+- `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
 
 #### `workflow run`
@@ -340,7 +393,7 @@ aikanban --json config [subcommand] [options]
 **Subcommands:**
 - `config show [-g, --global]`: Display active merged configuration or global configuration.
 - `config init [-g, --global] [options]`: Initialize or reconfigure project or global configuration (`--provider`, `--repo`, `--base`, `--prefix`, `--token`, `-f, --force`).
-- `config set <KEY> <VALUE> [-g, --global]`: Set a specific property (`provider`, `repo`, `base`, `prefix`, `token`, `verify`).
+- `config set <KEY> <VALUE> [-g, --global]`: Set a specific property (`provider`, `repo`, `base`, `prefix`, `token`, `verify`, `workflow.mergeMethod`, `workflow.deleteBranchOnMerge`, `workflow.requestColumn`, `workflow.doneColumn`, `workflow.reviewColumn`).
 
 ---
 

@@ -4,6 +4,7 @@ import aikanban.cli.CliContext
 import aikanban.cli.renderer.JsonRenderer
 import aikanban.config.AiKanbanConfig
 import aikanban.config.AiKanbanConfigLoader
+import aikanban.config.WorkflowOptionsConfig
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.requireObject
@@ -32,6 +33,7 @@ data class ConfigShowResult(
     val verify: List<String> = emptyList(),
     val hooks: Map<String, List<String>> = emptyMap(),
     val workflows: List<String> = emptyList(),
+    val workflow: WorkflowOptionsConfig = WorkflowOptionsConfig(),
 )
 
 class ConfigCommand : CliktCommand(name = "config") {
@@ -89,6 +91,7 @@ class ConfigCommand : CliktCommand(name = "config") {
                         verify = config.verify,
                         hooks = config.hooks,
                         workflows = config.workflows.keys.toList(),
+                        workflow = config.workflow,
                     )
                 println(JsonRenderer.render(result))
             } else {
@@ -123,6 +126,11 @@ class ConfigCommand : CliktCommand(name = "config") {
                 t.println("  • Repository: ${config.repo ?: "(not set)"}")
                 t.println("  • Branch prefix: ${config.branchPrefix}")
                 t.println("  • Token configured: ${if (!config.token.isNullOrBlank()) "yes" else "no"}")
+                t.println(
+                    "  • Workflow options: mergeMethod=${config.workflow.mergeMethod}, " +
+                        "deleteBranchOnMerge=${config.workflow.deleteBranchOnMerge}, " +
+                        "requestColumn=${config.workflow.requestColumn}, doneColumn=${config.workflow.doneColumn}",
+                )
                 if (config.verify.isNotEmpty()) {
                     t.println("  • Verify commands: ${config.verify.joinToString(", ")}")
                 }
@@ -261,9 +269,17 @@ class ConfigSetCommand : CliktCommand(name = "set") {
                 "branchprefix", "prefix" -> current.copy(branchPrefix = value)
                 "token" -> current.copy(token = value.takeIf { it.isNotBlank() })
                 "verify" -> current.copy(verify = value.split(",").map { it.trim() }.filter { it.isNotBlank() })
+                "workflow.mergemethod", "mergemethod" -> current.copy(workflow = current.workflow.copy(mergeMethod = value))
+                "workflow.deletebranchonmerge", "deletebranchonmerge", "deletebranch" ->
+                    current.copy(workflow = current.workflow.copy(deleteBranchOnMerge = value.toBooleanStrictOrNull() ?: true))
+                "workflow.requestcolumn", "requestcolumn" -> current.copy(workflow = current.workflow.copy(requestColumn = value))
+                "workflow.donecolumn", "donecolumn" -> current.copy(workflow = current.workflow.copy(doneColumn = value))
+                "workflow.reviewcolumn", "reviewcolumn" -> current.copy(workflow = current.workflow.copy(reviewColumn = value))
                 else ->
                     throw IllegalArgumentException(
-                        "Unknown config key: '$key'. Valid keys: provider, repo, defaultBaseBranch, branchPrefix, token, verify",
+                        "Unknown config key: '$key'. Valid keys: provider, repo, defaultBaseBranch, " +
+                            "branchPrefix, token, verify, workflow.mergeMethod, workflow.deleteBranchOnMerge, " +
+                            "workflow.requestColumn, workflow.doneColumn, workflow.reviewColumn",
                     )
             }
 

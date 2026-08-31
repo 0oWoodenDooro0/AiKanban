@@ -16,6 +16,15 @@ data class CustomWorkflowDefinition(
 )
 
 @Serializable
+data class WorkflowOptionsConfig(
+    val mergeMethod: String = "squash",
+    val deleteBranchOnMerge: Boolean = true,
+    val requestColumn: String = "REQUEST",
+    val doneColumn: String = "DONE",
+    val reviewColumn: String = "REVIEW",
+)
+
+@Serializable
 data class AiKanbanConfig(
     val provider: String = "local-git",
     val defaultBaseBranch: String = "main",
@@ -25,6 +34,7 @@ data class AiKanbanConfig(
     val verify: List<String> = emptyList(),
     val hooks: Map<String, List<String>> = emptyMap(),
     val workflows: Map<String, CustomWorkflowDefinition> = emptyMap(),
+    val workflow: WorkflowOptionsConfig = WorkflowOptionsConfig(),
 )
 
 @Serializable
@@ -131,6 +141,34 @@ object AiKanbanConfigLoader {
         project: AiKanbanConfig?,
     ): AiKanbanConfig {
         if (project == null) return global
+        val mergedWorkflow =
+            WorkflowOptionsConfig(
+                mergeMethod =
+                    if (project.workflow.mergeMethod.isNotBlank()) {
+                        project.workflow.mergeMethod
+                    } else {
+                        global.workflow.mergeMethod
+                    },
+                deleteBranchOnMerge = project.workflow.deleteBranchOnMerge,
+                requestColumn =
+                    if (project.workflow.requestColumn.isNotBlank()) {
+                        project.workflow.requestColumn
+                    } else {
+                        global.workflow.requestColumn
+                    },
+                doneColumn =
+                    if (project.workflow.doneColumn.isNotBlank()) {
+                        project.workflow.doneColumn
+                    } else {
+                        global.workflow.doneColumn
+                    },
+                reviewColumn =
+                    if (project.workflow.reviewColumn.isNotBlank()) {
+                        project.workflow.reviewColumn
+                    } else {
+                        global.workflow.reviewColumn
+                    },
+            )
         return AiKanbanConfig(
             provider = project.provider,
             defaultBaseBranch = project.defaultBaseBranch,
@@ -140,6 +178,7 @@ object AiKanbanConfigLoader {
             verify = project.verify.ifEmpty { global.verify },
             hooks = global.hooks + project.hooks,
             workflows = global.workflows + project.workflows,
+            workflow = mergedWorkflow,
         )
     }
 

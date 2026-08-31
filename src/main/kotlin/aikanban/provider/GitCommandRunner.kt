@@ -25,6 +25,27 @@ interface GitCommandRunner {
         workingDir: File? = null,
     ): GitProcessResult
 
+    fun checkoutBranch(
+        branchName: String,
+        createIfMissing: Boolean = false,
+        baseBranch: String? = null,
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun deleteBranch(
+        branchName: String,
+        force: Boolean = false,
+        remote: Boolean = false,
+        remoteName: String = "origin",
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun mergeBranch(
+        branchName: String,
+        squash: Boolean = false,
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
     fun isGitRepository(workingDir: File? = null): Boolean
 
     fun getRemoteUrl(
@@ -99,6 +120,54 @@ class DefaultGitCommandRunner(
                 listOf("git", "push", "-u", remote, branchName)
             } else {
                 listOf("git", "push", remote, branchName)
+            }
+        return runProcess(args, workingDir)
+    }
+
+    override fun checkoutBranch(
+        branchName: String,
+        createIfMissing: Boolean,
+        baseBranch: String?,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args =
+            if (createIfMissing) {
+                if (baseBranch != null) {
+                    listOf("git", "checkout", "-B", branchName, baseBranch)
+                } else {
+                    listOf("git", "checkout", "-B", branchName)
+                }
+            } else {
+                listOf("git", "checkout", branchName)
+            }
+        return runProcess(args, workingDir)
+    }
+
+    override fun deleteBranch(
+        branchName: String,
+        force: Boolean,
+        remote: Boolean,
+        remoteName: String,
+        workingDir: File?,
+    ): GitProcessResult {
+        return if (remote) {
+            runProcess(listOf("git", "push", remoteName, "--delete", branchName), workingDir)
+        } else {
+            val flag = if (force) "-D" else "-d"
+            runProcess(listOf("git", "branch", flag, branchName), workingDir)
+        }
+    }
+
+    override fun mergeBranch(
+        branchName: String,
+        squash: Boolean,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args =
+            if (squash) {
+                listOf("git", "merge", "--squash", branchName)
+            } else {
+                listOf("git", "merge", branchName)
             }
         return runProcess(args, workingDir)
     }

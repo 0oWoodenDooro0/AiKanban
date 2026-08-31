@@ -11,8 +11,12 @@ import aikanban.provider.CreatePullRequestRequest
 import aikanban.provider.DefaultGitCommandRunner
 import aikanban.provider.GitCommandRunner
 import aikanban.provider.IssueResult
+import aikanban.provider.IssueTrackerProvider
+import aikanban.provider.MergePullRequestRequest
 import aikanban.provider.ProviderFactory
 import aikanban.provider.PullRequestResult
+import aikanban.provider.RequestChangesPullRequestRequest
+import aikanban.provider.UpdateIssueRequest
 import aikanban.service.KanbanService
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -31,6 +35,9 @@ data class StartIssueRequest(
     val operator: String = "workflow",
     val providerName: String? = null,
     val dryRun: Boolean = false,
+    val pushBranch: Boolean = false,
+    val noCheckout: Boolean = false,
+    val fromPlanFile: String? = null,
 )
 
 @Serializable
@@ -38,6 +45,53 @@ data class StartIssueResult(
     val task: Task,
     val issue: IssueResult,
     val branch: BranchResult,
+)
+
+@Serializable
+data class StartReviewRequest(
+    val taskId: Int? = null,
+    val operator: String = "workflow",
+    val checkoutBranch: Boolean = true,
+)
+
+@Serializable
+data class StartReviewResult(
+    val task: Task,
+    val branchName: String?,
+    val prUrl: String?,
+    val executedHooks: List<CommandExecutionResult> = emptyList(),
+)
+
+@Serializable
+data class RequestChangesWorkflowRequest(
+    val taskId: Int,
+    val comment: String,
+    val operator: String = "workflow",
+    val providerName: String? = null,
+)
+
+@Serializable
+data class RequestChangesWorkflowResult(
+    val task: Task,
+    val comment: String,
+    val prUrl: String?,
+)
+
+@Serializable
+data class CompleteReviewWorkflowRequest(
+    val taskId: Int,
+    val merge: Boolean = false,
+    val comment: String? = null,
+    val operator: String = "workflow",
+    val providerName: String? = null,
+)
+
+@Serializable
+data class CompleteReviewWorkflowResult(
+    val task: Task,
+    val merged: Boolean,
+    val prUrl: String?,
+    val executedHooks: List<CommandExecutionResult> = emptyList(),
 )
 
 @Serializable
@@ -174,9 +228,29 @@ class DefaultShellCommandRunner : ShellCommandRunner {
 }
 
 interface KanbanWorkflowService {
-    suspend fun startIssue(request: StartIssueRequest): StartIssueResult
+    suspend fun startIssue(
+        request: StartIssueRequest,
+        workingDir: File? = null,
+    ): StartIssueResult
 
     suspend fun submitPr(request: SubmitPrRequest): SubmitPrResult
+
+    suspend fun startReview(
+        request: StartReviewRequest,
+        workingDir: File? = null,
+    ): StartReviewResult
+
+    suspend fun requestChanges(request: RequestChangesWorkflowRequest): RequestChangesWorkflowResult
+
+    suspend fun completeReview(
+        request: CompleteReviewWorkflowRequest,
+        workingDir: File? = null,
+    ): CompleteReviewWorkflowResult
+
+    suspend fun syncTaskRemote(
+        taskId: Int,
+        providerOverride: IssueTrackerProvider? = null,
+    ): Task
 
     suspend fun runVerify(
         commands: List<String>? = null,
@@ -202,6 +276,7 @@ class DefaultKanbanWorkflowService(
     private val config: AiKanbanConfig = AiKanbanConfig(),
     private val gitCommandRunner: GitCommandRunner = DefaultGitCommandRunner(),
     private val shellCommandRunner: ShellCommandRunner = DefaultShellCommandRunner(),
+    private val providerOverride: IssueTrackerProvider? = null,
 ) : KanbanWorkflowService {
     companion object {
         fun slugify(text: String): String {
@@ -212,20 +287,95 @@ class DefaultKanbanWorkflowService(
                 .take(50)
                 .trim('-')
         }
+
+        data class PlanMetadata(
+            val title: String?,
+            val description: String?,
+            val tags: Set<String>,
+            val priority: TaskPriority?,
+        )
+
+        fun extractPlanMetadata(content: String): PlanMetadata {
+            val lines = content.lines()
+            var title: String? = null
+            val tags = mutableSetOf<String>()
+            var priority: TaskPriority? = null
+            val descLines = mutableListOf<String>()
+
+            for (line in lines) {
+                val trimmed = line.trim()
+                if (title == null && trimmed.startsWith("#") && !trimmed.startsWith("##")) {
+                    val rawTitle = trimmed.removePrefix("#").trim()
+                    title = rawTitle
+                    val match = Regex("""^(\w+)(?:\(([^)]+)\))?:""").find(rawTitle)
+                    if (match != null) {
+                        val scope = match.groupValues.getOrNull(2)?.trim()
+                        if (!scope.isNullOrBlank()) {
+                            tags.add(scope)
+                        }
+                    }
+                } else if (title != null) {
+                    descLines.add(line)
+                }
+            }
+            return PlanMetadata(
+                title = title,
+                description = descLines.joinToString("\n").trim().takeIf { it.isNotBlank() },
+                tags = tags,
+                priority = priority,
+            )
+        }
     }
 
-    override suspend fun startIssue(request: StartIssueRequest): StartIssueResult {
-        val provider = providerFactory.resolve(request.providerName, config)
+    override suspend fun startIssue(
+        request: StartIssueRequest,
+        workingDir: File?,
+    ): StartIssueResult {
+        val dir = workingDir ?: File(".")
+        val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
+
+        var effectiveTitle = request.title.trim()
+        var effectiveDesc = request.description.trim()
+        val effectiveTags = request.tags.toMutableSet()
+        var effectivePlan = request.plan
+
+        if (!request.fromPlanFile.isNullOrBlank()) {
+            val planFile = File(request.fromPlanFile)
+            val planContent = if (planFile.isFile && planFile.canRead()) planFile.readText() else request.fromPlanFile
+            effectivePlan = planContent
+            val meta = extractPlanMetadata(planContent)
+            if (effectiveTitle.isBlank() && !meta.title.isNullOrBlank()) {
+                effectiveTitle = meta.title
+            }
+            if (effectiveDesc.isBlank() && !meta.description.isNullOrBlank()) {
+                effectiveDesc = meta.description
+            }
+            effectiveTags.addAll(meta.tags)
+        } else if (effectiveTitle.isBlank() && !effectivePlan.isNullOrBlank()) {
+            val meta = extractPlanMetadata(effectivePlan)
+            if (!meta.title.isNullOrBlank()) {
+                effectiveTitle = meta.title
+            }
+            if (effectiveDesc.isBlank() && !meta.description.isNullOrBlank()) {
+                effectiveDesc = meta.description
+            }
+            effectiveTags.addAll(meta.tags)
+        }
+
+        if (effectiveTitle.isBlank()) {
+            effectiveTitle = "Untitled Task"
+        }
+
         val branchName =
             request.branchName?.trim()?.takeIf { it.isNotBlank() }
-                ?: "${config.branchPrefix}${slugify(request.title)}"
+                ?: "${config.branchPrefix}${slugify(effectiveTitle)}"
 
         val issueResult =
             provider.createIssue(
                 CreateIssueRequest(
-                    title = request.title,
-                    body = request.description,
-                    labels = request.tags,
+                    title = effectiveTitle,
+                    body = effectiveDesc,
+                    labels = effectiveTags,
                     priority = request.priority,
                     assignee = request.assignee,
                 ),
@@ -235,11 +385,11 @@ class DefaultKanbanWorkflowService(
             val previewTask =
                 Task(
                     id = 0,
-                    title = request.title,
-                    description = request.description,
+                    title = effectiveTitle,
+                    description = effectiveDesc,
                     priority = request.priority,
                     assignee = request.assignee,
-                    tags = request.tags,
+                    tags = effectiveTags,
                     githubIssueUrl = issueResult.url,
                     status = "TODO",
                 )
@@ -256,21 +406,21 @@ class DefaultKanbanWorkflowService(
 
         val task =
             kanbanService.createTask(
-                title = request.title,
-                description = request.description,
+                title = effectiveTitle,
+                description = effectiveDesc,
                 priority = request.priority,
                 assignee = request.assignee,
-                tags = request.tags,
+                tags = effectiveTags,
                 githubIssueUrl = issueResult.url,
                 status = "TODO",
                 operator = request.operator,
             )
 
-        if (!request.plan.isNullOrBlank()) {
+        if (!effectivePlan.isNullOrBlank()) {
             provider.addComment(
                 AddIssueCommentRequest(
                     issueIdOrUrl = issueResult.url ?: issueResult.id,
-                    comment = request.plan,
+                    comment = effectivePlan,
                 ),
             )
             kanbanService.addComment(
@@ -280,6 +430,13 @@ class DefaultKanbanWorkflowService(
             )
         }
 
+        val originalBranch =
+            if (request.noCheckout && gitCommandRunner.isGitRepository(dir)) {
+                gitCommandRunner.getCurrentBranch(dir)
+            } else {
+                null
+            }
+
         val branchResult =
             provider.createBranch(
                 CreateBranchRequest(
@@ -288,6 +445,14 @@ class DefaultKanbanWorkflowService(
                     issueIdOrUrl = issueResult.url,
                 ),
             )
+
+        if (request.pushBranch && gitCommandRunner.isGitRepository(dir)) {
+            gitCommandRunner.pushBranch(branchName, "origin", true, dir)
+        }
+
+        if (request.noCheckout && originalBranch != null) {
+            gitCommandRunner.checkoutBranch(originalBranch, workingDir = dir)
+        }
 
         kanbanService.addComment(
             taskId = task.id,
@@ -364,6 +529,188 @@ class DefaultKanbanWorkflowService(
             task = updatedTask,
             pr = prResult,
         )
+    }
+
+    override suspend fun startReview(
+        request: StartReviewRequest,
+        workingDir: File?,
+    ): StartReviewResult {
+        val dir = workingDir ?: File(".")
+        val reviewColumn = config.workflow.reviewColumn.ifBlank { "REVIEW" }
+
+        val task =
+            if (request.taskId != null) {
+                kanbanService.getTask(request.taskId)
+            } else {
+                val candidateTasks = kanbanService.listTasks(status = reviewColumn)
+                candidateTasks.minWithOrNull(
+                    compareBy<Task> { task ->
+                        when (task.priority) {
+                            TaskPriority.URGENT -> 1
+                            TaskPriority.HIGH -> 2
+                            TaskPriority.MEDIUM -> 3
+                            TaskPriority.LOW -> 4
+                        }
+                    }.thenBy { it.createdAt },
+                ) ?: throw aikanban.service.exception.KanbanException("No tasks found in $reviewColumn column")
+            }
+
+        val executedHooks = mutableListOf<CommandExecutionResult>()
+        val preHooks = config.hooks["pre-start-review"] ?: emptyList()
+        for (hook in preHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+            if (!res.success) {
+                throw IllegalStateException(
+                    "Pre-start-review hook failed: $hook (exit code ${res.exitCode}): ${res.stderr.ifBlank { res.stdout }}",
+                )
+            }
+        }
+
+        var targetBranch: String? = null
+        for (log in task.logs.reversed()) {
+            val prefix = "Created and switched to branch "
+            if (log.comment.startsWith(prefix)) {
+                targetBranch = log.comment.removePrefix(prefix).trim()
+                break
+            }
+        }
+
+        if (targetBranch == null && task.githubPrUrl != null && task.githubPrUrl.startsWith("local://pull/")) {
+            targetBranch = task.githubPrUrl.removePrefix("local://pull/")
+        }
+
+        if (targetBranch == null) {
+            targetBranch = "${config.branchPrefix}${slugify(task.title)}"
+        }
+
+        if (request.checkoutBranch && targetBranch != null && gitCommandRunner.isGitRepository(dir)) {
+            gitCommandRunner.checkoutBranch(targetBranch, workingDir = dir)
+        }
+
+        kanbanService.addComment(
+            taskId = task.id,
+            operator = request.operator,
+            comment = "Started code review for task #${task.id}",
+        )
+
+        val postHooks = config.hooks["post-start-review"] ?: emptyList()
+        for (hook in postHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+        }
+
+        val updatedTask = kanbanService.getTask(task.id)
+        return StartReviewResult(
+            task = updatedTask,
+            branchName = targetBranch,
+            prUrl = task.githubPrUrl,
+            executedHooks = executedHooks,
+        )
+    }
+
+    override suspend fun requestChanges(request: RequestChangesWorkflowRequest): RequestChangesWorkflowResult {
+        val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
+        val task = kanbanService.getTask(request.taskId)
+        val targetColumn = config.workflow.requestColumn.ifBlank { "REQUEST" }
+
+        val updatedTask =
+            kanbanService.moveTask(
+                taskId = task.id,
+                toStatus = targetColumn,
+                operator = request.operator,
+                comment = request.comment,
+            )
+
+        val prUrl = task.githubPrUrl
+        if (!prUrl.isNullOrBlank()) {
+            provider.requestChangesPullRequest(
+                RequestChangesPullRequestRequest(
+                    prNumberOrUrl = prUrl,
+                    comment = request.comment,
+                ),
+            )
+        }
+
+        return RequestChangesWorkflowResult(
+            task = updatedTask,
+            comment = request.comment,
+            prUrl = prUrl,
+        )
+    }
+
+    override suspend fun completeReview(
+        request: CompleteReviewWorkflowRequest,
+        workingDir: File?,
+    ): CompleteReviewWorkflowResult {
+        val dir = workingDir ?: File(".")
+        val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
+        val task = kanbanService.getTask(request.taskId)
+        val doneColumn = config.workflow.doneColumn.ifBlank { "DONE" }
+
+        val executedHooks = mutableListOf<CommandExecutionResult>()
+        val preHooks = config.hooks["pre-complete-review"] ?: emptyList()
+        for (hook in preHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+            if (!res.success) {
+                throw IllegalStateException(
+                    "Pre-complete-review hook failed: $hook (exit code ${res.exitCode}): ${res.stderr.ifBlank { res.stdout }}",
+                )
+            }
+        }
+
+        val prUrl = task.githubPrUrl
+        if (request.merge && !prUrl.isNullOrBlank()) {
+            provider.mergePullRequest(
+                MergePullRequestRequest(
+                    prNumberOrUrl = prUrl,
+                    mergeMethod = config.workflow.mergeMethod,
+                    deleteBranch = config.workflow.deleteBranchOnMerge,
+                ),
+            )
+        }
+
+        val logComment = request.comment ?: if (request.merge) "Review approved and merged" else "Review approved"
+        val updatedTask =
+            kanbanService.moveTask(
+                taskId = task.id,
+                toStatus = doneColumn,
+                operator = request.operator,
+                comment = logComment,
+            )
+
+        val postHooks = config.hooks["post-complete-review"] ?: emptyList()
+        for (hook in postHooks) {
+            val res = shellCommandRunner.execute(hook, dir)
+            executedHooks.add(res)
+        }
+
+        return CompleteReviewWorkflowResult(
+            task = updatedTask,
+            merged = request.merge,
+            prUrl = prUrl,
+            executedHooks = executedHooks,
+        )
+    }
+
+    override suspend fun syncTaskRemote(
+        taskId: Int,
+        providerOverride: IssueTrackerProvider?,
+    ): Task {
+        val task = kanbanService.getTask(taskId)
+        val target = task.githubIssueUrl ?: task.githubRepo
+        if (!target.isNullOrBlank()) {
+            val provider = providerOverride ?: this.providerOverride ?: providerFactory.resolve(null, config)
+            provider.updateIssue(
+                UpdateIssueRequest(
+                    issueIdOrUrl = target,
+                    title = task.title,
+                    body = task.description,
+                ),
+            )
+        }
+        return task
     }
 
     override suspend fun runVerify(

@@ -6,7 +6,10 @@ import aikanban.cli.renderer.JsonRenderer
 import aikanban.config.AiKanbanConfigLoader
 import aikanban.model.TaskPriority
 import aikanban.workflow.CommitTaskRequest
+import aikanban.workflow.CompleteReviewWorkflowRequest
+import aikanban.workflow.RequestChangesWorkflowRequest
 import aikanban.workflow.StartIssueRequest
+import aikanban.workflow.StartReviewRequest
 import aikanban.workflow.StartTaskRequest
 import aikanban.workflow.SubmitPrRequest
 import com.github.ajalt.clikt.core.CliktCommand
@@ -14,6 +17,7 @@ import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.requireObject
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple
@@ -37,6 +41,9 @@ class WorkflowCommand : CliktCommand(name = "workflow") {
         subcommands(
             WorkflowStartIssueCommand(),
             WorkflowSubmitPrCommand(),
+            WorkflowStartReviewCommand(),
+            WorkflowRequestChangesCommand(),
+            WorkflowCompleteReviewCommand(),
             WorkflowRunCommand(),
             WorkflowVerifyCommand(),
             WorkflowStartTaskCommand(),
@@ -52,7 +59,7 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
 
     private val cliContext by requireObject<CliContext>()
 
-    private val title by argument("title", help = "Issue and task title")
+    private val title by argument("title", help = "Issue and task title").optional()
     private val description by option("-d", "--description", help = "Task description in Markdown").default("")
     private val priority by option("-p", "--priority", help = "Task priority (LOW, MEDIUM, HIGH, URGENT)")
         .enum<TaskPriority>(ignoreCase = true).default(TaskPriority.MEDIUM)
@@ -60,6 +67,15 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
     private val branch by option("-b", "--branch", help = "Dedicated Git branch name (auto-generated if omitted)")
     private val base by option("--base", help = "Base branch for new branch (defaults to config defaultBaseBranch or 'main')")
     private val plan by option("--plan", help = "Implementation plan markdown text or file path")
+    private val fromPlan by option(
+        "--from-plan",
+        help = "Path to Markdown implementation plan file to parse title, description, and attach",
+    )
+    private val push by option("--push", help = "Automatically push created branch to remote with upstream tracking").flag(default = false)
+    private val noCheckout by option(
+        "--no-checkout",
+        help = "Create branch without switching away from current workspace branch",
+    ).flag(default = false)
     private val assignee by option("-a", "--assignee", help = "Assigned user or agent name")
     private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
     private val provider by option("--provider", help = "VCS provider override (local-git, github)")
@@ -91,7 +107,7 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
 
         val request =
             StartIssueRequest(
-                title = title,
+                title = title ?: "",
                 description = description,
                 priority = priority,
                 tags = parsedTags,
@@ -102,9 +118,12 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
                 operator = operator,
                 providerName = provider ?: activeConfig.provider,
                 dryRun = dryRun,
+                pushBranch = push,
+                noCheckout = noCheckout,
+                fromPlanFile = fromPlan,
             )
 
-        val result = runBlocking { cliContext.workflowService.startIssue(request) }
+        val result = runBlocking { cliContext.workflowService.startIssue(request, cliContext.workingDir) }
 
         if (isJson) {
             println(JsonRenderer.render(result))
@@ -186,6 +205,134 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
             t.println(bold(green("$prefix✓ Submitted PR for Task #${result.task.id}: ${result.pr.url}")))
             t.println(cyan("  • Status: ${result.task.status}"))
             t.println(blue("  • Branch: ${result.pr.headBranch} -> ${result.pr.baseBranch}"))
+        }
+    }
+}
+
+class WorkflowStartReviewCommand : CliktCommand(name = "start-review") {
+    override fun help(context: Context): String =
+        "Start code review: resolve REVIEW task, execute pre/post review hooks, and checkout feature branch"
+
+    private val cliContext by requireObject<CliContext>()
+
+    private val taskId by argument("taskId", help = "Task ID (defaults to top task in REVIEW column)").int().optional()
+    private val noCheckout by option("--no-checkout", help = "Skip checking out feature branch locally").flag(default = false)
+    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
+
+    override fun run() {
+        val isJson = json || cliContext.jsonOutput
+        val result =
+            runBlocking {
+                cliContext.workflowService.startReview(
+                    StartReviewRequest(
+                        taskId = taskId,
+                        operator = operator,
+                        checkoutBranch = !noCheckout,
+                    ),
+                    workingDir = cliContext.workingDir,
+                )
+            }
+
+        if (isJson) {
+            println(JsonRenderer.render(result))
+        } else {
+            val t = cliContext.terminal
+            t.println(bold(green("✓ Started review for Task #${result.task.id}: \"${result.task.title}\"")))
+            if (result.branchName != null) {
+                t.println(blue("  • Branch: ${result.branchName}"))
+            }
+            if (result.prUrl != null) {
+                t.println(cyan("  • PR: ${result.prUrl}"))
+            }
+            HumanRenderer.renderTaskDetail(t, result.task)
+        }
+    }
+}
+
+class WorkflowRequestChangesCommand : CliktCommand(name = "request-changes") {
+    override fun help(context: Context): String =
+        "Request changes on task: transition to REQUEST column, submit PR review request, and log comments"
+
+    private val cliContext by requireObject<CliContext>()
+
+    private val taskId by argument("taskId", help = "Task ID").int()
+    private val message by option("-m", "--message", help = "Review comments or rework requirements").default("")
+    private val bodyFile by option("--body-file", help = "Path to file containing review comments")
+    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val provider by option("--provider", help = "VCS provider override (local-git, github)")
+    private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
+
+    override fun run() {
+        val isJson = json || cliContext.jsonOutput
+        val reviewComment =
+            bodyFile?.let {
+                val file = File(it)
+                if (file.isFile && file.canRead()) file.readText() else null
+            } ?: message.ifBlank { "Changes requested by reviewer" }
+
+        val result =
+            runBlocking {
+                cliContext.workflowService.requestChanges(
+                    RequestChangesWorkflowRequest(
+                        taskId = taskId,
+                        comment = reviewComment,
+                        operator = operator,
+                        providerName = provider,
+                    ),
+                )
+            }
+
+        if (isJson) {
+            println(JsonRenderer.render(result))
+        } else {
+            val t = cliContext.terminal
+            t.println(bold(yellow("✓ Requested changes for Task #${result.task.id}: \"${result.task.title}\"")))
+            t.println(cyan("  • Status: ${result.task.status}"))
+            t.println("  • Feedback: ${result.comment}")
+        }
+    }
+}
+
+class WorkflowCompleteReviewCommand : CliktCommand(name = "complete-review") {
+    override fun help(context: Context): String =
+        "Complete review: run pre/post review completion hooks, optionally merge PR / branch, and transition to DONE"
+
+    private val cliContext by requireObject<CliContext>()
+
+    private val taskId by argument("taskId", help = "Task ID").int()
+    private val merge by option("--merge", help = "Automatically approve and merge PR / feature branch").flag(default = false)
+    private val message by option("-m", "--message", help = "Approval summary or audit comment")
+    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val provider by option("--provider", help = "VCS provider override (local-git, github)")
+    private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
+
+    override fun run() {
+        val isJson = json || cliContext.jsonOutput
+        val result =
+            runBlocking {
+                cliContext.workflowService.completeReview(
+                    CompleteReviewWorkflowRequest(
+                        taskId = taskId,
+                        merge = merge,
+                        comment = message,
+                        operator = operator,
+                        providerName = provider,
+                    ),
+                    workingDir = cliContext.workingDir,
+                )
+            }
+
+        if (isJson) {
+            println(JsonRenderer.render(result))
+        } else {
+            val t = cliContext.terminal
+            val mergeInfo = if (result.merged) " (Merged)" else ""
+            t.println(bold(green("✓ Completed review for Task #${result.task.id}$mergeInfo: \"${result.task.title}\"")))
+            t.println(cyan("  • Status: ${result.task.status}"))
+            if (result.executedHooks.isNotEmpty()) {
+                t.println("  • Executed ${result.executedHooks.size} lifecycle hook(s)")
+            }
         }
     }
 }

@@ -3,6 +3,7 @@ package aikanban.cli.command
 import aikanban.cli.CliContext
 import aikanban.cli.renderer.HumanRenderer
 import aikanban.cli.renderer.JsonRenderer
+import aikanban.config.AiKanbanConfigLoader
 import aikanban.model.TaskPriority
 import aikanban.workflow.StartIssueRequest
 import aikanban.workflow.SubmitPrRequest
@@ -61,13 +62,24 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
         val isJson = json || cliContext.jsonOutput
         val parsedTags = tags.flatMap { it.split(",") }.map { it.trim() }.filter { it.isNotBlank() }.toSet()
 
+        val activeConfig =
+            if (provider == null && !isJson && !AiKanbanConfigLoader.hasConfigFile(cliContext.workingDir)) {
+                AiKanbanConfigLoader.ensureProviderConfig(
+                    workingDir = cliContext.workingDir,
+                    prompter = cliContext.prompter,
+                    gitCommandRunner = cliContext.gitCommandRunner,
+                )
+            } else {
+                cliContext.config
+            }
+
         val planText =
             plan?.let {
                 val file = File(it)
                 if (file.isFile && file.canRead()) file.readText() else it
             }
 
-        val targetBase = base ?: cliContext.config.defaultBaseBranch
+        val targetBase = base ?: activeConfig.defaultBaseBranch
 
         val request =
             StartIssueRequest(
@@ -80,7 +92,7 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
                 plan = planText,
                 assignee = assignee,
                 operator = operator,
-                providerName = provider,
+                providerName = provider ?: activeConfig.provider,
                 dryRun = dryRun,
             )
 
@@ -124,13 +136,24 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
     override fun run() {
         val isJson = json || cliContext.jsonOutput
 
+        val activeConfig =
+            if (provider == null && !isJson && !AiKanbanConfigLoader.hasConfigFile(cliContext.workingDir)) {
+                AiKanbanConfigLoader.ensureProviderConfig(
+                    workingDir = cliContext.workingDir,
+                    prompter = cliContext.prompter,
+                    gitCommandRunner = cliContext.gitCommandRunner,
+                )
+            } else {
+                cliContext.config
+            }
+
         val prBody =
             bodyFile?.let {
                 val file = File(it)
                 if (file.isFile && file.canRead()) file.readText() else null
             } ?: body
 
-        val targetBase = base ?: cliContext.config.defaultBaseBranch
+        val targetBase = base ?: activeConfig.defaultBaseBranch
 
         val request =
             SubmitPrRequest(
@@ -141,7 +164,7 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
                 baseBranch = targetBase,
                 draft = draft,
                 operator = operator,
-                providerName = provider,
+                providerName = provider ?: activeConfig.provider,
                 dryRun = dryRun,
             )
 

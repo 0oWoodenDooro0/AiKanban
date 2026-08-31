@@ -54,6 +54,11 @@ class LocalGitProviderTest {
         }
 
         override fun isGitRepository(workingDir: File?): Boolean = true
+
+        override fun getRemoteUrl(
+            remote: String,
+            workingDir: File?,
+        ): String? = null
     }
 
     @BeforeEach

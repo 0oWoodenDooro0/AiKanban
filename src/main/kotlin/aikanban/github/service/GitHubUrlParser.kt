@@ -17,7 +17,7 @@ object GitHubUrlParser {
 
     private val REPO_URL_REGEX =
         Regex(
-            """^(?:https?://)?(?:www\.)?github\.com/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:\.git)?(?:/.*)?$""",
+            """^(?:(?:https?://)?(?:www\.)?|(?:ssh://)?git@)github\.com[:/]([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+?)(?:\.git)?(?:/.*)?$""",
             RegexOption.IGNORE_CASE,
         )
 

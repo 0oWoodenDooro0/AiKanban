@@ -3,6 +3,7 @@ package aikanban.cli
 import aikanban.cli.command.AddCommand
 import aikanban.cli.command.ClaimCommand
 import aikanban.cli.command.ColumnCommand
+import aikanban.cli.command.ConfigCommand
 import aikanban.cli.command.ListCommand
 import aikanban.cli.command.LogCommand
 import aikanban.cli.command.MoveCommand
@@ -11,6 +12,8 @@ import aikanban.cli.command.ShowCommand
 import aikanban.cli.command.SyncCommand
 import aikanban.cli.command.UpdateCommand
 import aikanban.cli.command.WorkflowCommand
+import aikanban.cli.prompt.InteractivePrompter
+import aikanban.cli.prompt.TerminalInteractivePrompter
 import aikanban.cli.renderer.JsonRenderer
 import aikanban.config.AiKanbanConfig
 import aikanban.config.AiKanbanConfigLoader
@@ -37,6 +40,7 @@ import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.mordant.terminal.Terminal
+import java.io.File
 
 class AiKanbanCommand(
     private val serviceOverride: KanbanService? = null,
@@ -44,6 +48,8 @@ class AiKanbanCommand(
     private val configOverride: AiKanbanConfig? = null,
     private val providerFactoryOverride: ProviderFactory? = null,
     private val workflowServiceOverride: KanbanWorkflowService? = null,
+    private val prompterOverride: InteractivePrompter? = null,
+    private val workingDirOverride: File? = null,
     private val terminal: Terminal = Terminal(),
 ) : CliktCommand(name = "aikanban") {
     override fun help(context: Context): String = "AiKanban - Universal CLI Kanban Board for Humans and AI Agents"
@@ -63,6 +69,7 @@ class AiKanbanCommand(
             LogCommand(),
             UpdateCommand(),
             ColumnCommand(),
+            ConfigCommand(),
             SyncCommand(),
             WorkflowCommand(),
             ServeCommand(),
@@ -70,15 +77,18 @@ class AiKanbanCommand(
     }
 
     override fun run() {
+        val workingDir = workingDirOverride ?: File(".")
         val service = serviceOverride ?: DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:$db"))
-        val config = configOverride ?: AiKanbanConfigLoader.load()
-        val gitRunner = DefaultGitCommandRunner()
+        val prompter = prompterOverride ?: TerminalInteractivePrompter(terminal)
+        val config = configOverride ?: AiKanbanConfigLoader.load(workingDir)
+        val gitRunner = DefaultGitCommandRunner(workingDir)
         val providerFactory =
             providerFactoryOverride
                 ?: ProviderFactory(
                     service,
                     gitCommandRunner = gitRunner,
                     gitHubSyncService = gitHubSyncServiceOverride,
+                    workingDir = workingDir,
                 )
         val workflowService =
             workflowServiceOverride
@@ -95,6 +105,8 @@ class AiKanbanCommand(
                 service = service,
                 config = config,
                 gitCommandRunner = gitRunner,
+                workingDir = workingDir,
+                prompter = prompter,
                 providerFactory = providerFactory,
                 workflowService = workflowService,
                 gitHubSyncService = syncService,

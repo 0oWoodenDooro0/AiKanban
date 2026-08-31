@@ -2,5 +2,39 @@
   "provider": "github",
   "defaultBaseBranch": "main",
   "repo": "0oWoodenDooro0/AiKanban",
-  "branchPrefix": "feature/"
+  "branchPrefix": "feature/",
+  "verify": [
+    "./gradlew test",
+    "./gradlew ktlintCheck"
+  ],
+  "hooks": {
+    "pre-commit": [
+      "./gradlew ktlintFormat"
+    ],
+    "pre-submit-pr": [
+      "./gradlew test ktlintCheck"
+    ]
+  },
+  "workflows": {
+    "build": {
+      "description": "Build standalone CLI binary",
+      "steps": [
+        "./gradlew buildExecutable"
+      ]
+    },
+    "release": {
+      "description": "Run test checks and build standalone binary",
+      "steps": [
+        "./gradlew test ktlintCheck",
+        "./gradlew buildExecutable"
+      ]
+    },
+    "install": {
+      "description": "Build and install aikanban to ~/.local/bin",
+      "steps": [
+        "./gradlew installCli"
+      ]
+    }
+  }
 }
+

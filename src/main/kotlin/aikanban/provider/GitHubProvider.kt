@@ -238,6 +238,79 @@ class GitHubProvider(
         )
     }
 
+    override suspend fun updateIssue(request: UpdateIssueRequest): IssueResult {
+        val ghArgs = mutableListOf("issue", "edit", request.issueIdOrUrl)
+        if (!request.title.isNullOrBlank()) {
+            ghArgs.addAll(listOf("--title", request.title))
+        }
+        if (request.body != null) {
+            ghArgs.addAll(listOf("--body", request.body))
+        }
+        if (!request.assignee.isNullOrBlank()) {
+            ghArgs.addAll(listOf("--add-assignee", request.assignee))
+        }
+        if (!request.labels.isNullOrEmpty()) {
+            ghArgs.addAll(listOf("--add-label", request.labels.joinToString(",")))
+        }
+        if (!defaultRepo.isNullOrBlank() && !request.issueIdOrUrl.startsWith("http")) {
+            ghArgs.addAll(listOf("--repo", defaultRepo))
+        }
+
+        val res = runGh(ghArgs)
+        if (res.exitCode != 0) {
+            val errorMsg = res.stderr.ifBlank { res.stdout }.ifBlank { "Unknown gh issue edit error (exit code ${res.exitCode})" }
+            throw KanbanException("Failed to update GitHub issue: $errorMsg")
+        }
+
+        return IssueResult(
+            id = request.issueIdOrUrl,
+            title = request.title ?: "",
+            url = request.issueIdOrUrl,
+            body = request.body,
+        )
+    }
+
+    override suspend fun approvePullRequest(request: ApprovePullRequestRequest): Boolean {
+        val ghArgs = mutableListOf("pr", "review", request.prNumberOrUrl, "--approve")
+        if (!request.comment.isNullOrBlank()) {
+            ghArgs.addAll(listOf("--body", request.comment))
+        }
+        if (!defaultRepo.isNullOrBlank() && !request.prNumberOrUrl.startsWith("http")) {
+            ghArgs.addAll(listOf("--repo", defaultRepo))
+        }
+        val res = runGh(ghArgs)
+        return res.exitCode == 0
+    }
+
+    override suspend fun requestChangesPullRequest(request: RequestChangesPullRequestRequest): Boolean {
+        val ghArgs = mutableListOf("pr", "review", request.prNumberOrUrl, "--request-changes", "--body", request.comment)
+        if (!defaultRepo.isNullOrBlank() && !request.prNumberOrUrl.startsWith("http")) {
+            ghArgs.addAll(listOf("--repo", defaultRepo))
+        }
+        val res = runGh(ghArgs)
+        return res.exitCode == 0
+    }
+
+    override suspend fun mergePullRequest(request: MergePullRequestRequest): Boolean {
+        val ghArgs = mutableListOf("pr", "merge", request.prNumberOrUrl)
+        when (request.mergeMethod.lowercase()) {
+            "merge" -> ghArgs.add("--merge")
+            "rebase" -> ghArgs.add("--rebase")
+            else -> ghArgs.add("--squash")
+        }
+        if (request.deleteBranch) {
+            ghArgs.add("--delete-branch")
+        }
+        if (!request.commitMessage.isNullOrBlank()) {
+            ghArgs.addAll(listOf("--subject", request.commitMessage))
+        }
+        if (!defaultRepo.isNullOrBlank() && !request.prNumberOrUrl.startsWith("http")) {
+            ghArgs.addAll(listOf("--repo", defaultRepo))
+        }
+        val res = runGh(ghArgs)
+        return res.exitCode == 0
+    }
+
     override suspend fun sync(request: ProviderSyncRequest): ProviderSyncResult {
         val target = request.repoOrUrl ?: defaultRepo
         if (target.isNullOrBlank()) {

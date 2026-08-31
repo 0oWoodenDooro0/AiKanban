@@ -103,6 +103,36 @@ data class ProviderSyncResult(
     val tasks: List<Task> = emptyList(),
 )
 
+@Serializable
+data class UpdateIssueRequest(
+    val issueIdOrUrl: String,
+    val title: String? = null,
+    val body: String? = null,
+    val state: String? = null,
+    val labels: Set<String>? = null,
+    val assignee: String? = null,
+)
+
+@Serializable
+data class ApprovePullRequestRequest(
+    val prNumberOrUrl: String,
+    val comment: String? = null,
+)
+
+@Serializable
+data class RequestChangesPullRequestRequest(
+    val prNumberOrUrl: String,
+    val comment: String,
+)
+
+@Serializable
+data class MergePullRequestRequest(
+    val prNumberOrUrl: String,
+    val mergeMethod: String = "squash",
+    val deleteBranch: Boolean = true,
+    val commitMessage: String? = null,
+)
+
 interface IssueTrackerProvider {
     val name: String
 
@@ -110,11 +140,20 @@ interface IssueTrackerProvider {
 
     suspend fun createIssue(request: CreateIssueRequest): IssueResult
 
+    suspend fun updateIssue(request: UpdateIssueRequest): IssueResult =
+        IssueResult(id = request.issueIdOrUrl, title = request.title ?: "", url = request.issueIdOrUrl, body = request.body)
+
     suspend fun addComment(request: AddIssueCommentRequest): Boolean
 
     suspend fun createBranch(request: CreateBranchRequest): BranchResult
 
     suspend fun createPullRequest(request: CreatePullRequestRequest): PullRequestResult
+
+    suspend fun approvePullRequest(request: ApprovePullRequestRequest): Boolean = true
+
+    suspend fun requestChangesPullRequest(request: RequestChangesPullRequestRequest): Boolean = true
+
+    suspend fun mergePullRequest(request: MergePullRequestRequest): Boolean = true
 
     suspend fun sync(request: ProviderSyncRequest): ProviderSyncResult
 }

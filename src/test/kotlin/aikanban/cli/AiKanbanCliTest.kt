@@ -233,51 +233,128 @@ class AiKanbanCliTest {
         }
 
         @Test
-        @DisplayName("Should list all tasks in human table format")
-        fun testListTasksHuman() {
+        @DisplayName("Should list active tasks excluding DONE and sorted by priority DESC and ID ASC by default in human format")
+        fun testListTasksHumanDefault() {
             val result = execute("list")
             assertEquals(0, result.exitCode)
             assertTrue(result.stdout.contains("Task 1"))
             assertTrue(result.stdout.contains("Task 2"))
-            assertTrue(result.stdout.contains("Task 3"))
+            assertTrue(!result.stdout.contains("Task 3"), "Default list should exclude DONE tasks")
         }
 
         @Test
-        @DisplayName("Should list all tasks in JSON format")
-        fun testListTasksJson() {
+        @DisplayName("Should list active tasks excluding DONE and sorted by priority DESC and ID ASC by default in JSON format")
+        fun testListTasksJsonDefault() {
             val result = execute("list", "--json")
             assertEquals(0, result.exitCode)
             val tasks = json.decodeFromString<List<Task>>(result.stdout)
-            assertEquals(3, tasks.size)
-            assertEquals("Task 1", tasks[0].title)
-            assertEquals("Task 2", tasks[1].title)
-            assertEquals("Task 3", tasks[2].title)
+            assertEquals(2, tasks.size)
+            // Task 2 is HIGH (level 3), Task 1 is LOW (level 1)
+            assertEquals(2, tasks[0].id)
+            assertEquals("Task 2", tasks[0].title)
+            assertEquals(1, tasks[1].id)
+            assertEquals("Task 1", tasks[1].title)
         }
 
         @Test
-        @DisplayName("Should filter tasks by status, assignee, tag, and priority")
+        @DisplayName("Should list all tasks including DONE when --all flag is provided")
+        fun testListTasksWithAllFlag() {
+            val result = execute("list", "--all", "--json")
+            assertEquals(0, result.exitCode)
+            val tasks = json.decodeFromString<List<Task>>(result.stdout)
+            assertEquals(3, tasks.size)
+            // Order by priority: Task 3 (URGENT: 4) > Task 2 (HIGH: 3) > Task 1 (LOW: 1)
+            assertEquals(3, tasks[0].id)
+            assertEquals("Task 3", tasks[0].title)
+            assertEquals(2, tasks[1].id)
+            assertEquals("Task 2", tasks[1].title)
+            assertEquals(1, tasks[2].id)
+            assertEquals("Task 1", tasks[2].title)
+
+            val humanResult = execute("list", "--all")
+            assertEquals(0, humanResult.exitCode)
+            assertTrue(humanResult.stdout.contains("Task 1"))
+            assertTrue(humanResult.stdout.contains("Task 2"))
+            assertTrue(humanResult.stdout.contains("Task 3"))
+        }
+
+        @Test
+        @DisplayName("Should list DONE tasks when -s DONE is explicitly provided")
+        fun testListTasksExplicitStatusDone() {
+            val result = execute("list", "-s", "DONE", "--json")
+            assertEquals(0, result.exitCode)
+            val tasks = json.decodeFromString<List<Task>>(result.stdout)
+            assertEquals(1, tasks.size)
+            assertEquals(3, tasks[0].id)
+            assertEquals("Task 3", tasks[0].title)
+            assertEquals("DONE", tasks[0].status)
+        }
+
+        @Test
+        @DisplayName("Should strictly sort tasks by priority descending then ID ascending across multiple tasks")
+        fun testListTasksPriorityAndIdSortingMultiTasks() {
+            service.createTask(title = "Task 4", priority = TaskPriority.HIGH, status = "TODO")
+            service.createTask(title = "Task 5", priority = TaskPriority.MEDIUM, status = "REVIEW")
+            service.createTask(title = "Task 6", priority = TaskPriority.LOW, status = "TODO")
+
+            val result = execute("list", "--json")
+            assertEquals(0, result.exitCode)
+            val tasks = json.decodeFromString<List<Task>>(result.stdout)
+            assertEquals(5, tasks.size) // Task 3 (DONE) excluded
+
+            // Expected order:
+            // 1. Task 2 (HIGH, id 2)
+            // 2. Task 4 (HIGH, id 4)
+            // 3. Task 5 (MEDIUM, id 5)
+            // 4. Task 1 (LOW, id 1)
+            // 5. Task 6 (LOW, id 6)
+            val taskIds = tasks.map { it.id }
+            assertEquals(listOf(2, 4, 5, 1, 6), taskIds)
+        }
+
+        @Test
+        @DisplayName("Should filter tasks by status, assignee, tag, and priority with default DONE exclusion")
         fun testListTasksFilters() {
-            // Filter by status
+            // Filter by status (explicit status retains matched tasks including DONE if requested)
             val statusResult = execute("list", "-s", "IN_PROGRESS", "--json")
             val statusTasks = json.decodeFromString<List<Task>>(statusResult.stdout)
             assertEquals(1, statusTasks.size)
             assertEquals("Task 2", statusTasks[0].title)
 
-            // Filter by assignee
+            // Filter by assignee: Alice has Task 1 (TODO) and Task 3 (DONE) -> default excludes Task 3
             val assigneeResult = execute("list", "-a", "Alice", "--json")
             val assigneeTasks = json.decodeFromString<List<Task>>(assigneeResult.stdout)
-            assertEquals(2, assigneeTasks.size)
+            assertEquals(1, assigneeTasks.size)
+            assertEquals("Task 1", assigneeTasks[0].title)
 
-            // Filter by tag
+            // Filter by assignee with --all -> includes Task 3 and Task 1
+            val assigneeAllResult = execute("list", "-a", "Alice", "--all", "--json")
+            val assigneeAllTasks = json.decodeFromString<List<Task>>(assigneeAllResult.stdout)
+            assertEquals(2, assigneeAllTasks.size)
+            assertEquals(listOf(3, 1), assigneeAllTasks.map { it.id })
+
+            // Filter by tag: backend has Task 2 (IN_PROGRESS) and Task 3 (DONE) -> default excludes Task 3
             val tagResult = execute("list", "-t", "backend", "--json")
             val tagTasks = json.decodeFromString<List<Task>>(tagResult.stdout)
-            assertEquals(2, tagTasks.size)
+            assertEquals(1, tagTasks.size)
+            assertEquals("Task 2", tagTasks[0].title)
 
-            // Filter by priority
+            // Filter by tag with --all -> includes Task 3 and Task 2
+            val tagAllResult = execute("list", "-t", "backend", "--all", "--json")
+            val tagAllTasks = json.decodeFromString<List<Task>>(tagAllResult.stdout)
+            assertEquals(2, tagAllTasks.size)
+            assertEquals(listOf(3, 2), tagAllTasks.map { it.id })
+
+            // Filter by priority: URGENT is only Task 3 (DONE) -> default excludes Task 3
             val priorityResult = execute("list", "-p", "URGENT", "--json")
             val priorityTasks = json.decodeFromString<List<Task>>(priorityResult.stdout)
-            assertEquals(1, priorityTasks.size)
-            assertEquals("Task 3", priorityTasks[0].title)
+            assertEquals(0, priorityTasks.size)
+
+            // Filter by priority with --all -> returns Task 3
+            val priorityAllResult = execute("list", "-p", "URGENT", "--all", "--json")
+            val priorityAllTasks = json.decodeFromString<List<Task>>(priorityAllResult.stdout)
+            assertEquals(1, priorityAllTasks.size)
+            assertEquals("Task 3", priorityAllTasks[0].title)
         }
 
         @Test

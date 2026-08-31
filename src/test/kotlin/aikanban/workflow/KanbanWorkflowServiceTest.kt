@@ -189,4 +189,75 @@ class KanbanWorkflowServiceTest {
             val taskInDb = service.getTask(task.id)
             assertEquals("IN_PROGRESS", taskInDb.status) // unchanged
         }
+
+    @Test
+    @DisplayName("Should persist structured branch name in Task when executing startIssue")
+    fun testStartIssuePersistsTaskBranch() =
+        runBlocking {
+            val request =
+                StartIssueRequest(
+                    title = "Structured Branch Feature",
+                    branchName = "feature/structured-branch-feat",
+                    baseBranch = "main",
+                )
+
+            val result = workflowService.startIssue(request)
+            assertEquals("feature/structured-branch-feat", result.task.branch)
+
+            val persisted = service.getTask(result.task.id)
+            assertEquals("feature/structured-branch-feat", persisted.branch)
+        }
+
+    @Test
+    @DisplayName("Should automatically checkout task branch when executing startTask")
+    fun testStartTaskAutoCheckoutBranch() =
+        runBlocking {
+            val task =
+                service.createTask(
+                    title = "Task To Start and Checkout",
+                    status = "TODO",
+                    branch = "feature/task-auto-checkout",
+                )
+            fakeGitRunner.currentBranch = "main"
+
+            val started =
+                workflowService.startTask(
+                    StartTaskRequest(
+                        taskId = task.id,
+                        assignee = "agent-dev",
+                        checkoutBranch = true,
+                    ),
+                    workingDir = tempDir.toFile(),
+                )
+
+            assertEquals("IN_PROGRESS", started.status)
+            assertEquals("agent-dev", started.assignee)
+            assertEquals("feature/task-auto-checkout", fakeGitRunner.currentBranch)
+        }
+
+    @Test
+    @DisplayName("Should skip checkout when startTask is called with checkoutBranch = false")
+    fun testStartTaskNoCheckout() =
+        runBlocking {
+            val task =
+                service.createTask(
+                    title = "Task To Start Without Checkout",
+                    status = "TODO",
+                    branch = "feature/skip-checkout-branch",
+                )
+            fakeGitRunner.currentBranch = "main"
+
+            val started =
+                workflowService.startTask(
+                    StartTaskRequest(
+                        taskId = task.id,
+                        assignee = "agent-dev",
+                        checkoutBranch = false,
+                    ),
+                    workingDir = tempDir.toFile(),
+                )
+
+            assertEquals("IN_PROGRESS", started.status)
+            assertEquals("main", fakeGitRunner.currentBranch) // Remains on main
+        }
 }

@@ -26,6 +26,8 @@ class SqliteTaskRepository(
                 stmt.execute("PRAGMA busy_timeout = 5000;")
             }
             createTables()
+            migrateSchema()
+            createIndexes()
             initDefaultColumns()
         }
     }
@@ -54,6 +56,7 @@ class SqliteTaskRepository(
                     priority TEXT NOT NULL,
                     assignee TEXT,
                     tags TEXT NOT NULL,
+                    branch TEXT,
                     github_repo TEXT,
                     github_issue_url TEXT,
                     github_pr_url TEXT,
@@ -81,9 +84,27 @@ class SqliteTaskRepository(
                 );
                 """.trimIndent(),
             )
+        }
+    }
 
+    private fun migrateSchema() {
+        connection.createStatement().use { stmt ->
+            val rs = stmt.executeQuery("PRAGMA table_info(tasks);")
+            val columns = mutableListOf<String>()
+            while (rs.next()) {
+                columns.add(rs.getString("name"))
+            }
+            if (columns.isNotEmpty() && !columns.contains("branch")) {
+                stmt.execute("ALTER TABLE tasks ADD COLUMN branch TEXT;")
+            }
+        }
+    }
+
+    private fun createIndexes() {
+        connection.createStatement().use { stmt ->
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);")
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);")
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_tasks_branch ON tasks(branch);")
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_task_logs_task_id ON task_logs(task_id);")
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_columns_order ON columns(display_order);")
         }
@@ -181,10 +202,10 @@ class SqliteTaskRepository(
             val sql =
                 """
                 INSERT INTO tasks (
-                    title, description, status, priority, assignee, tags,
+                    title, description, status, priority, assignee, tags, branch,
                     github_repo, github_issue_url, github_pr_url,
                     created_at, updated_at, completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                 """.trimIndent()
 
             val now = System.currentTimeMillis()
@@ -199,15 +220,16 @@ class SqliteTaskRepository(
                     stmt.setString(4, task.priority.name)
                     stmt.setString(5, task.assignee)
                     stmt.setString(6, json.encodeToString(task.tags))
-                    stmt.setString(7, task.githubRepo)
-                    stmt.setString(8, task.githubIssueUrl)
-                    stmt.setString(9, task.githubPrUrl)
-                    stmt.setLong(10, createdAt)
-                    stmt.setLong(11, updatedAt)
+                    stmt.setString(7, task.branch)
+                    stmt.setString(8, task.githubRepo)
+                    stmt.setString(9, task.githubIssueUrl)
+                    stmt.setString(10, task.githubPrUrl)
+                    stmt.setLong(11, createdAt)
+                    stmt.setLong(12, updatedAt)
                     if (task.completedAt != null) {
-                        stmt.setLong(12, task.completedAt)
+                        stmt.setLong(13, task.completedAt)
                     } else {
-                        stmt.setNull(12, java.sql.Types.INTEGER)
+                        stmt.setNull(13, java.sql.Types.INTEGER)
                     }
                     stmt.executeUpdate()
 
@@ -302,6 +324,7 @@ class SqliteTaskRepository(
                     priority = ?,
                     assignee = ?,
                     tags = ?,
+                    branch = ?,
                     github_repo = ?,
                     github_issue_url = ?,
                     github_pr_url = ?,
@@ -318,16 +341,17 @@ class SqliteTaskRepository(
                 stmt.setString(4, task.priority.name)
                 stmt.setString(5, task.assignee)
                 stmt.setString(6, json.encodeToString(task.tags))
-                stmt.setString(7, task.githubRepo)
-                stmt.setString(8, task.githubIssueUrl)
-                stmt.setString(9, task.githubPrUrl)
-                stmt.setLong(10, now)
+                stmt.setString(7, task.branch)
+                stmt.setString(8, task.githubRepo)
+                stmt.setString(9, task.githubIssueUrl)
+                stmt.setString(10, task.githubPrUrl)
+                stmt.setLong(11, now)
                 if (task.completedAt != null) {
-                    stmt.setLong(11, task.completedAt)
+                    stmt.setLong(12, task.completedAt)
                 } else {
-                    stmt.setNull(11, java.sql.Types.INTEGER)
+                    stmt.setNull(12, java.sql.Types.INTEGER)
                 }
-                stmt.setInt(12, task.id)
+                stmt.setInt(13, task.id)
                 stmt.executeUpdate()
             }
 
@@ -425,6 +449,13 @@ class SqliteTaskRepository(
         val completedAtVal = rs.getLong("completed_at")
         val completedAt = if (rs.wasNull()) null else completedAtVal
 
+        val branch =
+            try {
+                rs.getString("branch")
+            } catch (_: Exception) {
+                null
+            }
+
         return Task(
             id = rs.getInt("id"),
             title = rs.getString("title"),
@@ -433,6 +464,7 @@ class SqliteTaskRepository(
             priority = TaskPriority.valueOf(rs.getString("priority")),
             assignee = rs.getString("assignee"),
             tags = tags,
+            branch = branch,
             githubRepo = rs.getString("github_repo"),
             githubIssueUrl = rs.getString("github_issue_url"),
             githubPrUrl = rs.getString("github_pr_url"),

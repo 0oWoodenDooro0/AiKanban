@@ -62,6 +62,16 @@ class LocalGitProviderTest {
             return GitProcessResult(0, "Pushed branch $branchName to $remote", "")
         }
 
+        override fun checkoutBranch(
+            branchName: String,
+            createIfMissing: Boolean,
+            baseBranch: String?,
+            workingDir: File?,
+        ): GitProcessResult {
+            currentBranch = branchName
+            return GitProcessResult(0, "Switched to branch '$branchName'", "")
+        }
+
         override fun isGitRepository(workingDir: File?): Boolean = true
 
         override fun getRemoteUrl(

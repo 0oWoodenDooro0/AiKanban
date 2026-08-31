@@ -11,6 +11,7 @@ data class Task(
     val priority: TaskPriority = TaskPriority.MEDIUM,
     val assignee: String? = null,
     val tags: Set<String> = emptySet(),
+    val branch: String? = null,
     val githubRepo: String? = null,
     val githubIssueUrl: String? = null,
     val githubPrUrl: String? = null,

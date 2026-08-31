@@ -232,5 +232,34 @@ class SyncAndWorkflowCliTest {
             assertEquals("REVIEW", submitResult.task.status)
             assertNotNull(submitResult.pr.url)
         }
+
+        @Test
+        @DisplayName("Should execute workflow verify in CLI")
+        fun testWorkflowVerifyCli() {
+            val result = execute("workflow", "verify", "--json")
+            assertEquals(0, result.exitCode)
+            assertTrue(result.stdout.contains("success"))
+        }
+
+        @Test
+        @DisplayName("Should execute workflow start-task in CLI")
+        fun testWorkflowStartTaskCli() {
+            val task = service.createTask(title = "Pending Task", status = "TODO")
+            val result = execute("workflow", "start-task", task.id.toString(), "-a", "agent-x", "--json")
+            assertEquals(0, result.exitCode)
+            val updated = service.getTask(task.id)
+            assertEquals("IN_PROGRESS", updated.status)
+            assertEquals("agent-x", updated.assignee)
+        }
+
+        @Test
+        @DisplayName("Should execute workflow commit in CLI")
+        fun testWorkflowCommitCli() {
+            val task = service.createTask(title = "Task In Dev", status = "IN_PROGRESS")
+            val result = execute("workflow", "commit", task.id.toString(), "-m", "feat: cli commit", "--no-git", "--json")
+            assertEquals(0, result.exitCode)
+            val updated = service.getTask(task.id)
+            assertTrue(updated.logs.any { it.comment.contains("Committed changes: feat: cli commit") })
+        }
     }
 }

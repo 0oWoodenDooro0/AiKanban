@@ -199,4 +199,48 @@ class ConfigCommandTest {
         assertEquals("github", savedConfig.provider)
         assertEquals("neworg/newrepo", savedConfig.repo)
     }
+
+    @Test
+    @DisplayName("Should display and update global config using --global flag")
+    fun testGlobalConfigCommands() {
+        val globalDir = tempDir.resolve("global_config_dir").toFile().apply { mkdirs() }
+        val globalFile = File(globalDir, "config.json")
+        AiKanbanConfigLoader.overrideGlobalConfigFile = globalFile
+
+        try {
+            // 1. Init global config
+            val initResult =
+                execute(
+                    "config",
+                    "init",
+                    "--global",
+                    "--provider",
+                    "github",
+                    "--token",
+                    "gh-token-123",
+                    "--base",
+                    "master",
+                )
+            assertEquals(0, initResult.exitCode)
+            assertTrue(globalFile.exists())
+
+            // 2. Show global config
+            val showResult = execute("config", "show", "--global", "--json")
+            assertEquals(0, showResult.exitCode)
+            val parsedGlobal = json.parseToJsonElement(showResult.stdout).jsonObject
+            assertEquals("github", parsedGlobal["provider"]?.jsonPrimitive?.content)
+            assertEquals("master", parsedGlobal["defaultBaseBranch"]?.jsonPrimitive?.content)
+            assertEquals(true, parsedGlobal["tokenConfigured"]?.jsonPrimitive?.content?.toBoolean())
+            assertEquals(true, parsedGlobal["isGlobal"]?.jsonPrimitive?.content?.toBoolean())
+
+            // 3. Set global config property
+            val setResult = execute("config", "set", "branchPrefix", "global-feat/", "--global", "--json")
+            assertEquals(0, setResult.exitCode)
+
+            val reloadedGlobal = AiKanbanConfigLoader.loadGlobal()
+            assertEquals("global-feat/", reloadedGlobal.branchPrefix)
+        } finally {
+            AiKanbanConfigLoader.overrideGlobalConfigFile = null
+        }
+    }
 }

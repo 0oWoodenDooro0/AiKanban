@@ -5,7 +5,9 @@ import aikanban.cli.renderer.HumanRenderer
 import aikanban.cli.renderer.JsonRenderer
 import aikanban.config.AiKanbanConfigLoader
 import aikanban.model.TaskPriority
+import aikanban.workflow.CommitTaskRequest
 import aikanban.workflow.StartIssueRequest
+import aikanban.workflow.StartTaskRequest
 import aikanban.workflow.SubmitPrRequest
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.Context
@@ -16,11 +18,13 @@ import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.int
 import com.github.ajalt.mordant.rendering.TextColors.blue
 import com.github.ajalt.mordant.rendering.TextColors.cyan
 import com.github.ajalt.mordant.rendering.TextColors.green
+import com.github.ajalt.mordant.rendering.TextColors.red
 import com.github.ajalt.mordant.rendering.TextColors.yellow
 import com.github.ajalt.mordant.rendering.TextStyles.bold
 import kotlinx.coroutines.runBlocking
@@ -33,6 +37,10 @@ class WorkflowCommand : CliktCommand(name = "workflow") {
         subcommands(
             WorkflowStartIssueCommand(),
             WorkflowSubmitPrCommand(),
+            WorkflowRunCommand(),
+            WorkflowVerifyCommand(),
+            WorkflowStartTaskCommand(),
+            WorkflowCommitCommand(),
         )
     }
 
@@ -178,6 +186,146 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
             t.println(bold(green("$prefix✓ Submitted PR for Task #${result.task.id}: ${result.pr.url}")))
             t.println(cyan("  • Status: ${result.task.status}"))
             t.println(blue("  • Branch: ${result.pr.headBranch} -> ${result.pr.baseBranch}"))
+        }
+    }
+}
+
+class WorkflowRunCommand : CliktCommand(name = "run") {
+    override fun help(context: Context): String = "Execute custom defined workflow steps from configuration"
+
+    private val cliContext by requireObject<CliContext>()
+
+    private val name by argument("name", help = "Workflow name defined in configuration")
+    private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
+
+    override fun run() {
+        val isJson = json || cliContext.jsonOutput
+        val result = runBlocking { cliContext.workflowService.runWorkflow(name, cliContext.workingDir) }
+
+        if (isJson) {
+            println(JsonRenderer.render(result))
+        } else {
+            val t = cliContext.terminal
+            if (result.success) {
+                t.println(bold(green("✓ Workflow '$name' completed successfully (${result.executedSteps.size} steps)")))
+            } else {
+                t.println(bold(red("✗ Workflow '$name' failed: ${result.message}")))
+            }
+            for (step in result.executedSteps) {
+                val icon = if (step.success) green("✓") else red("✗")
+                t.println("  $icon ${step.step} (exit ${step.exitCode})")
+                if (!step.success && step.stderr.isNotBlank()) {
+                    t.println(yellow("    ${step.stderr.lines().take(5).joinToString("\n    ")}"))
+                }
+            }
+        }
+    }
+}
+
+class WorkflowVerifyCommand : CliktCommand(name = "verify") {
+    override fun help(context: Context): String = "Run project verification and quality checks configured in .aikanban.json"
+
+    private val cliContext by requireObject<CliContext>()
+
+    private val commands by option("-c", "--command", help = "Specific verification command override (repeatable)").multiple()
+    private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
+
+    override fun run() {
+        val isJson = json || cliContext.jsonOutput
+        val customCmds = commands.takeIf { it.isNotEmpty() }
+        val result = runBlocking { cliContext.workflowService.runVerify(customCmds, cliContext.workingDir) }
+
+        if (isJson) {
+            println(JsonRenderer.render(result))
+        } else {
+            val t = cliContext.terminal
+            if (result.success) {
+                t.println(bold(green("✓ ${result.message}")))
+            } else {
+                t.println(bold(red("✗ ${result.message}")))
+            }
+            for (cmd in result.executedCommands) {
+                val icon = if (cmd.success) green("✓") else red("✗")
+                t.println("  $icon ${cmd.command} (exit ${cmd.exitCode})")
+                if (!cmd.success && cmd.stderr.isNotBlank()) {
+                    t.println(yellow("    ${cmd.stderr.lines().take(5).joinToString("\n    ")}"))
+                }
+            }
+        }
+    }
+}
+
+class WorkflowStartTaskCommand : CliktCommand(name = "start-task") {
+    override fun help(context: Context): String = "Atomically start working on an existing task and move it to IN_PROGRESS"
+
+    private val cliContext by requireObject<CliContext>()
+
+    private val taskId by argument("taskId", help = "Task ID").int()
+    private val assignee by option("-a", "--assignee", help = "Assigned user or agent name")
+    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
+
+    override fun run() {
+        val isJson = json || cliContext.jsonOutput
+        val task =
+            runBlocking {
+                cliContext.workflowService.startTask(
+                    StartTaskRequest(
+                        taskId = taskId,
+                        assignee = assignee,
+                        operator = operator,
+                    ),
+                )
+            }
+
+        if (isJson) {
+            println(JsonRenderer.render(task))
+        } else {
+            val t = cliContext.terminal
+            t.println(bold(green("✓ Started Task #${task.id}: \"${task.title}\" (Status: ${task.status})")))
+            HumanRenderer.renderTaskDetail(t, task)
+        }
+    }
+}
+
+class WorkflowCommitCommand : CliktCommand(name = "commit") {
+    override fun help(context: Context): String =
+        "Execute pre-commit hooks, stage & commit changes to Git, and log commit hash to AiKanban task"
+
+    private val cliContext by requireObject<CliContext>()
+
+    private val taskId by argument("taskId", help = "Task ID").int()
+    private val message by option("-m", "--message", help = "Git commit message and audit log summary").required()
+    private val files by option("-f", "--file", help = "Specific files to stage (defaults to all changed files)").multiple()
+    private val noGit by option("--no-git", help = "Skip local git commit execution, only log to AiKanban").flag(default = false)
+    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
+
+    override fun run() {
+        val isJson = json || cliContext.jsonOutput
+        val result =
+            runBlocking {
+                cliContext.workflowService.commitTask(
+                    CommitTaskRequest(
+                        taskId = taskId,
+                        message = message,
+                        files = files,
+                        operator = operator,
+                        executeGitCommit = !noGit,
+                    ),
+                    workingDir = cliContext.workingDir,
+                )
+            }
+
+        if (isJson) {
+            println(JsonRenderer.render(result))
+        } else {
+            val t = cliContext.terminal
+            val commitInfo = result.commitHash?.take(7)?.let { " [$it]" } ?: ""
+            t.println(bold(green("✓ Committed for Task #${result.task.id}$commitInfo: \"$message\"")))
+            if (result.executedHooks.isNotEmpty()) {
+                t.println(cyan("  • Executed ${result.executedHooks.size} lifecycle hook(s)"))
+            }
         }
     }
 }

@@ -21,21 +21,51 @@ All `aikanban` commands accept the following global options:
 | `--db <path>` | `AIKANBAN_DB` | `aikanban.db` | Path to the SQLite database file. |
 | `--generate-completion <shell>` | - | - | Generate shell completion script (`bash`, `zsh`, `fish`). |
 
-### Project Configuration (`.aikanban.json`)
+### Project & Global Configuration
 
-Repositories can configure AiKanban preferences in `.aikanban.json` or `aikanban.config.json`:
+AiKanban supports layered configuration with OS-native global config directories and per-repository project overrides (`.aikanban.json` or `aikanban.config.json`):
 
+#### Configuration Search Paths
+1. **Explicit Environment Variable**: `AIKANBAN_GLOBAL_CONFIG` (highest priority)
+2. **OS-Native Standard Global Config Directory**:
+   - **Linux / Unix**: `$XDG_CONFIG_HOME/aikanban/config.json` (defaults to `~/.config/aikanban/config.json`)
+   - **macOS**: `~/Library/Application Support/aikanban/config.json`
+   - **Windows**: `%APPDATA%\aikanban\config.json`
+   - **Fallback**: `~/.aikanban.json`
+3. **Repository Project Config**: `.aikanban.json` or `aikanban.config.json` (walks up parent directories)
+
+#### Configuration Schema (`.aikanban.json` / `config.json`)
 ```json
 {
   "provider": "local-git",
   "defaultBaseBranch": "main",
   "repo": "owner/repo",
   "branchPrefix": "feature/",
-  "token": "optional-token"
+  "token": "optional-token",
+  "verify": [
+    "./gradlew test",
+    "./gradlew ktlintCheck"
+  ],
+  "hooks": {
+    "pre-submit-pr": ["./gradlew check"],
+    "post-submit-pr": ["echo PR created"],
+    "pre-commit": ["./gradlew ktlintFormat"],
+    "post-commit": ["echo Commit recorded"]
+  },
+  "workflows": {
+    "release": {
+      "description": "Build and release binaries",
+      "steps": [
+        "./gradlew test",
+        "./gradlew buildExecutable"
+      ]
+    }
+  }
 }
 ```
 
-- **Supported Providers**: `local-git` (default, pure offline local Git), `github` (GitHub CLI & API).
+- **Supported Providers**: `local-git` (default, offline local Git), `github` (GitHub CLI & API).
+- **Cascading Merging**: Repository configurations inherit global defaults and override fields (e.g. `provider`, `repo`, `defaultBaseBranch`) or extend maps (`hooks`, `workflows`).
 
 ---
 
@@ -240,7 +270,7 @@ aikanban --json workflow start-issue "feat(auth): JWT authentication" \
 ```
 
 #### `workflow submit-pr`
-Atomically pushes the branch to remote, creates a Pull Request via the active provider, links the PR URL, and transitions the Kanban task to `REVIEW`.
+Atomically push Git branch, execute `pre-submit-pr` hooks, create Pull Request via active provider, transition task to `REVIEW`, and execute `post-submit-pr` hooks.
 
 ```bash
 aikanban --json workflow submit-pr <TASK_ID> [options]
@@ -257,23 +287,64 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - `--dry-run`: Preview PR submission without executing Git push or DB transition.
 - `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
 
-**Lifecycle & Internal Execution Steps:**
-1. **Task & Context Lookup**: Queries task by `<TASK_ID>` from SQLite DB. Automatically detects head branch (current Git branch) and base branch (`defaultBaseBranch` or `main`).
-2. **Provider Resolution**: Automatically determines Git provider (`github`, `local-git`) based on configuration.
-3. **Branch Push**: Executes `git push -u origin <head>` to push the feature branch to upstream remote repository.
-4. **PR/MR Creation**: Creates Pull Request on GitHub (`gh pr create` with `--title`, `--body`/`--body-file`, `--draft`) or local PR reference (`local://pull/<head>`).
-5. **Kanban Transition & Association**: Transitions Kanban task from `IN_PROGRESS` to `REVIEW`, records `pr_url`, and logs `"Submitted pull request: <PR_URL>"` in the audit history.
+#### `workflow run`
+Execute custom multi-step workflow defined in configuration `workflows.<name>`.
 
-**Example:**
 ```bash
-aikanban --json workflow submit-pr 42 \
-  --title "feat(auth): implement token refresh" \
-  --body "## 📝 Summary\n- Added JWT refresh provider\n\nCloses #42"
+aikanban --json workflow run <NAME>
 ```
+
+#### `workflow verify`
+Run project quality and verification checks configured in `verify` list (or pass custom commands).
+
+```bash
+aikanban --json workflow verify [options]
+```
+
+**Options:**
+- `-c, --command <CMD>`: Specific command override (repeatable).
+
+#### `workflow start-task`
+Atomically claim/start working on an existing task and transition it to `IN_PROGRESS`.
+
+```bash
+aikanban --json workflow start-task <TASK_ID> [options]
+```
+
+**Options:**
+- `-a, --assignee <NAME>`: Assigned user or agent name.
+- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+#### `workflow commit`
+Execute `pre-commit` hooks, stage files, create Git commit, log commit hash to Kanban task, and execute `post-commit` hooks.
+
+```bash
+aikanban --json workflow commit <TASK_ID> -m "<MESSAGE>" [options]
+```
+
+**Options:**
+- `-m, --message <TEXT>`: Git commit message (required).
+- `-f, --file <PATH>`: Specific files to stage (repeatable, defaults to all modified files).
+- `--no-git`: Skip local Git commit execution, only log to AiKanban task.
+- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
 
 ---
 
-### 11. `serve` - Start Web Dashboard & API Server
+### 11. `config` - Manage VCS & Workflow Configuration
+Inspect, initialize, or modify project and global configuration.
+
+```bash
+aikanban --json config [subcommand] [options]
+```
+
+**Subcommands:**
+- `config show [-g, --global]`: Display active merged configuration or global configuration.
+- `config init [-g, --global] [options]`: Initialize or reconfigure project or global configuration (`--provider`, `--repo`, `--base`, `--prefix`, `--token`, `-f, --force`).
+- `config set <KEY> <VALUE> [-g, --global]`: Set a specific property (`provider`, `repo`, `base`, `prefix`, `token`, `verify`).
+
+---
+
+### 12. `serve` - Start Web Dashboard & API Server
 Start the embedded Ktor Web Kanban dashboard, REST API, and real-time SSE server.
 
 ```bash
@@ -283,3 +354,4 @@ aikanban serve [options]
 **Options:**
 - `-p, --port <PORT>`: Port to listen on (default: `8080`, env `AIKANBAN_PORT`).
 - `-h, --host <HOST>`: Host address to bind to (default: `0.0.0.0`, env `AIKANBAN_HOST`).
+

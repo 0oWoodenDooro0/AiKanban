@@ -1,6 +1,7 @@
 package aikanban.workflow
 
 import aikanban.config.AiKanbanConfig
+import aikanban.github.service.GitHubUrlParser
 import aikanban.model.Task
 import aikanban.model.TaskPriority
 import aikanban.provider.AddIssueCommentRequest
@@ -302,6 +303,84 @@ class DefaultKanbanWorkflowService(
                 .take(50)
                 .trim('-')
         }
+
+        fun extractIssueNumber(urlOrId: String?): Int? {
+            if (urlOrId.isNullOrBlank()) return null
+            val trimmed = urlOrId.trim()
+
+            // 1. Check via GitHubUrlParser
+            val ghIssue = GitHubUrlParser.parseIssue(trimmed)
+            if (ghIssue != null) return ghIssue.number
+
+            // 2. Check generic issue URL like .../issues/<num>
+            val issueUrlMatch = Regex("""/issues/(\d+)(?:/.*)?$""", RegexOption.IGNORE_CASE).find(trimmed)
+            if (issueUrlMatch != null) {
+                return issueUrlMatch.groupValues[1].toIntOrNull()
+            }
+
+            // 3. Check local issue URI (e.g. local://issue/LOCAL-42 or local://issue/42)
+            if (trimmed.startsWith("local://issue/")) {
+                val rest = trimmed.removePrefix("local://issue/")
+                return rest.removePrefix("LOCAL-").toIntOrNull()
+            }
+
+            // 4. Check raw hashtag #<num> or numeric string
+            val numMatch = Regex("""^#?(\d+)$""").matchEntire(trimmed)
+            if (numMatch != null) {
+                return numMatch.groupValues[1].toIntOrNull()
+            }
+
+            return null
+        }
+
+        fun extractChecklist(text: String): List<String> {
+            if (text.isBlank()) return emptyList()
+            val checklistRegex = Regex("""^\s*(?:[-*]|\d+\.)\s+\[[ xX]\]\s+.*""")
+            return text.lines().map { it.trimEnd() }.filter { checklistRegex.matches(it) }
+        }
+
+        fun buildPrBody(
+            requestBody: String?,
+            task: Task,
+        ): String {
+            val baseBody =
+                when {
+                    !requestBody.isNullOrBlank() -> requestBody.trim()
+                    task.description.isNotBlank() -> task.description.trim()
+                    else -> "## Summary\n${task.title}"
+                }
+
+            val checklistRegex = Regex("""(?m)^\s*(?:[-*]|\d+\.)\s+\[[ xX]\]""")
+            val bodyHasChecklist = checklistRegex.containsMatchIn(baseBody)
+
+            val bodyWithChecklist =
+                if (!bodyHasChecklist && task.description.isNotBlank()) {
+                    val taskChecklist = extractChecklist(task.description)
+                    if (taskChecklist.isNotEmpty()) {
+                        buildString {
+                            append(baseBody)
+                            append("\n\n## Checklist\n")
+                            append(taskChecklist.joinToString("\n"))
+                        }
+                    } else {
+                        baseBody
+                    }
+                } else {
+                    baseBody
+                }
+
+            val issueNumber = extractIssueNumber(task.githubIssueUrl)
+            return if (issueNumber != null) {
+                val closesRegex = Regex("""(?i)\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#?$issueNumber\b""")
+                if (!closesRegex.containsMatchIn(bodyWithChecklist)) {
+                    "${bodyWithChecklist.trimEnd()}\n\nCloses #$issueNumber"
+                } else {
+                    bodyWithChecklist
+                }
+            } else {
+                bodyWithChecklist
+            }
+        }
     }
 
     private fun resolveTaskBranch(
@@ -431,7 +510,7 @@ class DefaultKanbanWorkflowService(
                 ?: task.branch
                 ?: gitCommandRunner.getCurrentBranch()
         val prTitle = request.title?.trim()?.takeIf { it.isNotBlank() } ?: task.title
-        val prBody = request.body ?: task.description
+        val prBody = buildPrBody(request.body, task)
 
         if (request.dryRun) {
             val previewPr =

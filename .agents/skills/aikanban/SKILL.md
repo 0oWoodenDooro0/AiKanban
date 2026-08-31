@@ -47,10 +47,14 @@ AiKanban supports layered configuration with OS-native global config directories
     "./gradlew ktlintCheck"
   ],
   "hooks": {
+    "pre-commit": ["./gradlew ktlintFormat"],
+    "post-commit": ["echo Commit recorded"],
     "pre-submit-pr": ["./gradlew check"],
     "post-submit-pr": ["echo PR created"],
-    "pre-commit": ["./gradlew ktlintFormat"],
-    "post-commit": ["echo Commit recorded"]
+    "pre-start-review": ["git fetch origin"],
+    "post-start-review": ["echo Review initialized"],
+    "pre-complete-review": ["./gradlew test"],
+    "post-complete-review": ["echo Review completed"]
   },
   "workflows": {
     "release": {
@@ -60,6 +64,15 @@ AiKanban supports layered configuration with OS-native global config directories
         "./gradlew buildExecutable"
       ]
     }
+  },
+  "workflow": {
+    "mergeMethod": "squash",
+    "deleteBranchOnMerge": true,
+    "requireVerification": false,
+    "checkoutBaseOnComplete": true,
+    "requestColumn": "REQUEST",
+    "doneColumn": "DONE",
+    "reviewColumn": "REVIEW"
   }
 }
 ```
@@ -286,6 +299,49 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `--dry-run`: Preview PR submission without executing Git push or DB transition.
 - `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+
+#### `workflow start-review`
+Start a code review session: automatically resolves the target task in `REVIEW` status, executes `pre-start-review` hooks, checks out the dedicated feature branch locally, appends a review start audit log, and executes `post-start-review` hooks.
+
+```bash
+aikanban --json workflow start-review [TASK_ID] [options]
+```
+
+**Options:**
+- `TASK_ID`: Kanban task ID (optional; automatically resolves top task in `REVIEW` column if omitted).
+- `--no-checkout`: Skip checking out the feature branch locally (default: `false`).
+- `-o, --operator <NAME>`: Reviewer identifier (default: `workflow`).
+
+#### `workflow request-changes`
+Request rework or changes on a task under review: transitions the task to the `REQUEST` column, posts change request review comments to the remote PR (if GitHub), and logs feedback on the Kanban board.
+
+```bash
+aikanban --json workflow request-changes <TASK_ID> [options]
+```
+
+**Options:**
+- `-m, --message <TEXT>`: Review comments or rework feedback.
+- `--body-file <FILE>`: File containing review feedback markdown.
+- `--provider <NAME>`: VCS provider override (`local-git`, `github`).
+- `-o, --operator <NAME>`: Reviewer identifier (default: `workflow`).
+
+#### `workflow complete-review`
+Complete review: runs quality verification gate (`--verify`), executes `pre-complete-review` hooks, optionally approves and merges PR / branch (`--merge`), automatically checks out target base branch (`--checkout-base`, default `true`), automatically deletes feature branch (`--delete-branch`), transitions task to `DONE`, and executes `post-complete-review` hooks.
+
+```bash
+aikanban --json workflow complete-review <TASK_ID> [options]
+```
+
+**Options:**
+- `--verify`: Run quality verification checks (`verify` commands) before completing review; halts completion if any check fails.
+- `--checkout-base / --no-checkout-base`: Automatically checkout target base branch (`main` or `--base`) after review completion (default: `true`).
+- `--delete-branch / --no-delete-branch`: Delete local feature branch upon completion (default: inherits `workflow.deleteBranchOnMerge` when `--merge` is specified).
+- `--pull-base`: Execute `git pull` on the target base branch after checking it out.
+- `--base <BRANCH>`: Target base branch override (default: `main` or config).
+- `--merge`: Automatically approve and merge the Pull Request / feature branch.
+- `-m, --message <TEXT>`: Approval summary or audit log comment.
+- `--provider <NAME>`: VCS provider override (`local-git`, `github`).
+- `-o, --operator <NAME>`: Reviewer identifier (default: `workflow`).
 
 #### `workflow run`
 Execute custom multi-step workflow defined in configuration `workflows.<name>`.

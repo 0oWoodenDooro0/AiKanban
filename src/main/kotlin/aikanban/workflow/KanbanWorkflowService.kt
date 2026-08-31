@@ -292,7 +292,7 @@ class DefaultKanbanWorkflowService(
         kanbanService.addComment(
             taskId = task.id,
             operator = request.operator,
-            comment = "Created and switched to branch $branchName",
+            comment = "Created branch $branchName",
         )
 
         return StartIssueResult(

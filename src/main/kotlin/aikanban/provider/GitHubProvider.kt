@@ -168,7 +168,6 @@ class GitHubProvider(
                     request.branchName,
                     "--base",
                     request.baseBranch,
-                    "--checkout",
                 )
             if (!defaultRepo.isNullOrBlank() && !request.issueIdOrUrl.startsWith("http")) {
                 ghDevelopArgs.add("--repo")
@@ -186,7 +185,7 @@ class GitHubProvider(
             }
         }
 
-        val gitRes = gitCommandRunner.createAndCheckoutBranch(request.branchName, request.baseBranch, workingDir)
+        val gitRes = gitCommandRunner.createBranchOnly(request.branchName, request.baseBranch, workingDir)
         return BranchResult(
             branchName = request.branchName,
             baseBranch = request.baseBranch,

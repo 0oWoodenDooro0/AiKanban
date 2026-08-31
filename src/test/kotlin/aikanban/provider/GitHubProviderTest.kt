@@ -296,7 +296,7 @@ class GitHubProviderTest {
     }
 
     @Test
-    @DisplayName("Should create branch and checkout via gitCommandRunner fallback when gh develop is not used")
+    @DisplayName("Should create branch without checking out via gitCommandRunner fallback when gh develop is not used")
     fun testCreateBranchGitFallback() =
         runBlocking {
             fakeGhRunner.responseHandler = {
@@ -314,15 +314,15 @@ class GitHubProviderTest {
             assertEquals("feature/gh-branch", result.branchName)
             assertEquals("main", result.baseBranch)
             assertTrue(result.created)
-            assertEquals("feature/gh-branch", fakeGitRunner.currentBranch)
+            assertEquals("main", fakeGitRunner.currentBranch)
         }
 
     @Test
-    @DisplayName("Should create branch via gh issue develop when successful")
+    @DisplayName("Should create branch via gh issue develop without --checkout when successful")
     fun testCreateBranchGhDevelop() =
         runBlocking {
             fakeGhRunner.responseHandler = {
-                GitProcessResult(exitCode = 0, stdout = "Branch created and checked out", stderr = "")
+                GitProcessResult(exitCode = 0, stdout = "Branch created", stderr = "")
             }
 
             val request =
@@ -337,6 +337,10 @@ class GitHubProviderTest {
             assertEquals("main", result.baseBranch)
             assertTrue(result.created)
             assertEquals("https://github.com/owner/repo/issues/42", result.linkedIssueUrl)
+
+            val developCmd = fakeGhRunner.executedCommands.firstOrNull { it.contains("develop") }
+            assertNotNull(developCmd)
+            assertTrue(!developCmd.contains("--checkout"), "gh issue develop must not contain --checkout")
         }
 
     @Test

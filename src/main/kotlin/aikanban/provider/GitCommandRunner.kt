@@ -26,6 +26,11 @@ interface GitCommandRunner {
     ): GitProcessResult
 
     fun isGitRepository(workingDir: File? = null): Boolean
+
+    fun getRemoteUrl(
+        remote: String = "origin",
+        workingDir: File? = null,
+    ): String?
 }
 
 class DefaultGitCommandRunner(
@@ -89,5 +94,13 @@ class DefaultGitCommandRunner(
     override fun isGitRepository(workingDir: File?): Boolean {
         val res = runProcess(listOf("git", "rev-parse", "--is-inside-work-tree"), workingDir)
         return res.exitCode == 0 && res.stdout == "true"
+    }
+
+    override fun getRemoteUrl(
+        remote: String,
+        workingDir: File?,
+    ): String? {
+        val res = runProcess(listOf("git", "remote", "get-url", remote), workingDir)
+        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
     }
 }

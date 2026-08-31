@@ -1,5 +1,7 @@
 package aikanban.cli
 
+import aikanban.cli.prompt.InteractivePrompter
+import aikanban.cli.prompt.TerminalInteractivePrompter
 import aikanban.config.AiKanbanConfig
 import aikanban.config.AiKanbanConfigLoader
 import aikanban.github.service.DefaultGitHubSyncService
@@ -11,12 +13,20 @@ import aikanban.service.KanbanService
 import aikanban.workflow.DefaultKanbanWorkflowService
 import aikanban.workflow.KanbanWorkflowService
 import com.github.ajalt.mordant.terminal.Terminal
+import java.io.File
 
 data class CliContext(
     val service: KanbanService,
     val config: AiKanbanConfig = AiKanbanConfigLoader.load(),
     val gitCommandRunner: GitCommandRunner = DefaultGitCommandRunner(),
-    val providerFactory: ProviderFactory = ProviderFactory(service, gitCommandRunner = gitCommandRunner),
+    val workingDir: File = File("."),
+    val prompter: InteractivePrompter = TerminalInteractivePrompter(Terminal()),
+    val providerFactory: ProviderFactory =
+        ProviderFactory(
+            service,
+            gitCommandRunner = gitCommandRunner,
+            workingDir = workingDir,
+        ),
     val workflowService: KanbanWorkflowService =
         DefaultKanbanWorkflowService(
             kanbanService = service,

@@ -42,13 +42,14 @@ Repositories can configure AiKanban preferences in `.aikanban.json` or `aikanban
 ## Commands & Usage
 
 ### 1. `list` - List and Filter Tasks
-List tasks on the board with optional filtering.
+List tasks on the board with optional filtering. Tasks are sorted by priority descending (`URGENT` > `HIGH` > `MEDIUM` > `LOW`) and then by ID ascending. By default, completed tasks (`DONE`) are excluded unless `--all` or an explicit status filter is provided.
 
 ```bash
 aikanban --json list [options]
 ```
 
 **Options:**
+- `--all`: Include all tasks (including completed `DONE` tasks).
 - `-s, --status <STATUS>`: Filter by column status (e.g. `TODO`, `IN_PROGRESS`, `REVIEW`, `DONE`).
 - `-a, --assignee <NAME>`: Filter by assigned user or agent name.
 - `-t, --tag <TAG>`: Filter by tag name.

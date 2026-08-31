@@ -14,9 +14,9 @@ import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.netty.NettyApplicationEngine
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readUTF8Line
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
@@ -65,6 +65,7 @@ class KanbanSseTest {
 
         runBlocking(Dispatchers.IO) {
             val port = s.engine.resolvedConnectors().first().port
+            val connected = CompletableDeferred<Unit>()
             val job =
                 async {
                     client.prepareGet("http://127.0.0.1:$port/api/events") {
@@ -74,6 +75,9 @@ class KanbanSseTest {
                         val channel: ByteReadChannel = response.body()
                         while (!channel.isClosedForRead) {
                             val line = channel.readUTF8Line() ?: break
+                            if (line.contains("connected")) {
+                                connected.complete(Unit)
+                            }
                             if (line.isNotBlank()) {
                                 eventList.add(line)
                                 if (eventList.size >= 4) {
@@ -84,8 +88,9 @@ class KanbanSseTest {
                     }
                 }
 
-            // Give the SSE subscription a short moment to connect
-            delay(300)
+            withTimeout(10000) {
+                connected.await()
+            }
 
             // Trigger events via service
             val created =
@@ -102,7 +107,7 @@ class KanbanSseTest {
                 comment = "Started work",
             )
 
-            withTimeout(5000) {
+            withTimeout(10000) {
                 job.await()
             }
         }
@@ -125,6 +130,7 @@ class KanbanSseTest {
 
         runBlocking(Dispatchers.IO) {
             val port = s.engine.resolvedConnectors().first().port
+            val connected = CompletableDeferred<Unit>()
             val job =
                 async {
                     client.prepareGet("http://127.0.0.1:$port/api/events") {
@@ -133,6 +139,9 @@ class KanbanSseTest {
                         val channel: ByteReadChannel = response.body()
                         while (!channel.isClosedForRead) {
                             val line = channel.readUTF8Line() ?: break
+                            if (line.contains("connected")) {
+                                connected.complete(Unit)
+                            }
                             if (line.isNotBlank()) {
                                 eventList.add(line)
                                 if (eventList.size >= 4) {
@@ -143,13 +152,15 @@ class KanbanSseTest {
                     }
                 }
 
-            delay(300)
+            withTimeout(10000) {
+                connected.await()
+            }
 
             val customCol = BoardColumn(id = "TESTING", name = "Testing Phase", order = 5)
             service.createColumn(customCol)
             service.updateColumn(customCol.copy(name = "QA Testing"))
 
-            withTimeout(5000) {
+            withTimeout(10000) {
                 job.await()
             }
         }

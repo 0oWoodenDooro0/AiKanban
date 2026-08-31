@@ -10,12 +10,21 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 @Serializable
+data class CustomWorkflowDefinition(
+    val description: String? = null,
+    val steps: List<String> = emptyList(),
+)
+
+@Serializable
 data class AiKanbanConfig(
     val provider: String = "local-git",
     val defaultBaseBranch: String = "main",
     val repo: String? = null,
     val branchPrefix: String = "feature/",
     val token: String? = null,
+    val verify: List<String> = emptyList(),
+    val hooks: Map<String, List<String>> = emptyMap(),
+    val workflows: Map<String, CustomWorkflowDefinition> = emptyMap(),
 )
 
 @Serializable
@@ -28,6 +37,8 @@ data class ProbedGitInfo(
 )
 
 object AiKanbanConfigLoader {
+    var overrideGlobalConfigFile: File? = null
+
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -36,6 +47,68 @@ object AiKanbanConfigLoader {
         }
 
     private val CONFIG_FILENAMES = listOf(".aikanban.json", "aikanban.config.json")
+
+    fun resolveGlobalConfigPath(
+        env: Map<String, String> = System.getenv(),
+        osName: String = System.getProperty("os.name") ?: "Linux",
+        userHome: String = System.getProperty("user.home") ?: ".",
+    ): File {
+        if (overrideGlobalConfigFile != null) {
+            return overrideGlobalConfigFile!!
+        }
+        val envPath = env["AIKANBAN_GLOBAL_CONFIG"]
+        if (!envPath.isNullOrBlank()) {
+            return File(envPath)
+        }
+
+        return if (osName.contains("win", ignoreCase = true)) {
+            val appData = env["APPDATA"] ?: "$userHome/AppData/Roaming"
+            val sep = "\\"
+            File("$appData${sep}aikanban${sep}config.json")
+        } else if (osName.contains("mac", ignoreCase = true)) {
+            File("$userHome/Library/Application Support/aikanban/config.json")
+        } else {
+            val xdgConfig = env["XDG_CONFIG_HOME"]
+            if (!xdgConfig.isNullOrBlank()) {
+                File("$xdgConfig/aikanban/config.json")
+            } else {
+                File("$userHome/.config/aikanban/config.json")
+            }
+        }
+    }
+
+    fun getGlobalConfigFile(): File = resolveGlobalConfigPath()
+
+    fun findGlobalConfigFile(): File? {
+        if (overrideGlobalConfigFile != null) {
+            return if (overrideGlobalConfigFile!!.exists() && overrideGlobalConfigFile!!.canRead()) overrideGlobalConfigFile else null
+        }
+        val osFile = resolveGlobalConfigPath()
+        if (osFile.isFile && osFile.canRead()) {
+            return osFile
+        }
+        val legacyHomeFile = File(System.getProperty("user.home") ?: ".", ".aikanban.json")
+        if (legacyHomeFile.isFile && legacyHomeFile.canRead()) {
+            return legacyHomeFile
+        }
+        return null
+    }
+
+    fun loadGlobal(): AiKanbanConfig {
+        val candidate = findGlobalConfigFile() ?: return AiKanbanConfig()
+        return try {
+            json.decodeFromString<AiKanbanConfig>(candidate.readText())
+        } catch (e: Exception) {
+            AiKanbanConfig()
+        }
+    }
+
+    fun saveGlobal(config: AiKanbanConfig): File {
+        val target = getGlobalConfigFile()
+        target.parentFile?.mkdirs()
+        target.writeText(json.encodeToString(config))
+        return target
+    }
 
     fun findConfigFile(startDir: File = File(".")): File? {
         var current: File? = startDir.absoluteFile
@@ -53,13 +126,43 @@ object AiKanbanConfigLoader {
 
     fun hasConfigFile(startDir: File = File(".")): Boolean = findConfigFile(startDir) != null
 
-    fun load(startDir: File = File(".")): AiKanbanConfig {
-        val candidate = findConfigFile(startDir) ?: return AiKanbanConfig()
-        return try {
-            json.decodeFromString<AiKanbanConfig>(candidate.readText())
-        } catch (e: Exception) {
-            AiKanbanConfig()
+    fun merge(
+        global: AiKanbanConfig,
+        project: AiKanbanConfig?,
+    ): AiKanbanConfig {
+        if (project == null) return global
+        return AiKanbanConfig(
+            provider = project.provider,
+            defaultBaseBranch = project.defaultBaseBranch,
+            repo = project.repo ?: global.repo,
+            branchPrefix = project.branchPrefix,
+            token = project.token ?: global.token ?: System.getenv("GITHUB_TOKEN"),
+            verify = project.verify.ifEmpty { global.verify },
+            hooks = global.hooks + project.hooks,
+            workflows = global.workflows + project.workflows,
+        )
+    }
+
+    fun load(
+        startDir: File = File("."),
+        mergeGlobal: Boolean = true,
+    ): AiKanbanConfig {
+        val candidate = findConfigFile(startDir)
+        val projectConfig =
+            candidate?.let {
+                try {
+                    json.decodeFromString<AiKanbanConfig>(it.readText())
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+        if (!mergeGlobal) {
+            return projectConfig ?: AiKanbanConfig()
         }
+
+        val globalConfig = loadGlobal()
+        return if (projectConfig != null) merge(globalConfig, projectConfig) else globalConfig
     }
 
     fun save(

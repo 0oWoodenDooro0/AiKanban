@@ -31,6 +31,18 @@ interface GitCommandRunner {
         remote: String = "origin",
         workingDir: File? = null,
     ): String?
+
+    fun addFiles(
+        files: List<String> = emptyList(),
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun commit(
+        message: String,
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun getHeadCommitHash(workingDir: File? = null): String? = null
 }
 
 class DefaultGitCommandRunner(
@@ -101,6 +113,26 @@ class DefaultGitCommandRunner(
         workingDir: File?,
     ): String? {
         val res = runProcess(listOf("git", "remote", "get-url", remote), workingDir)
+        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
+    }
+
+    override fun addFiles(
+        files: List<String>,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args = if (files.isEmpty()) listOf("git", "add", ".") else listOf("git", "add") + files
+        return runProcess(args, workingDir)
+    }
+
+    override fun commit(
+        message: String,
+        workingDir: File?,
+    ): GitProcessResult {
+        return runProcess(listOf("git", "commit", "-m", message), workingDir)
+    }
+
+    override fun getHeadCommitHash(workingDir: File?): String? {
+        val res = runProcess(listOf("git", "rev-parse", "HEAD"), workingDir)
         return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
     }
 }

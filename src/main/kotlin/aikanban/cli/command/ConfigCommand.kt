@@ -22,17 +22,23 @@ import java.io.File
 @Serializable
 data class ConfigShowResult(
     val configFile: String?,
+    val globalConfigFile: String? = null,
+    val isGlobal: Boolean = false,
     val provider: String,
     val defaultBaseBranch: String,
     val repo: String?,
     val branchPrefix: String,
     val tokenConfigured: Boolean,
+    val verify: List<String> = emptyList(),
+    val hooks: Map<String, List<String>> = emptyMap(),
+    val workflows: List<String> = emptyList(),
 )
 
 class ConfigCommand : CliktCommand(name = "config") {
-    override fun help(context: Context): String = "Manage AiKanban VCS provider and project configuration"
+    override fun help(context: Context): String = "Manage AiKanban VCS provider, project, and global configuration"
 
     private val cliContext by requireObject<CliContext>()
+    private val global by option("-g", "--global", help = "Manage or display global configuration").flag(default = false)
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     init {
@@ -45,79 +51,110 @@ class ConfigCommand : CliktCommand(name = "config") {
 
     override fun run() {
         if (currentContext.invokedSubcommand == null) {
-            val isJson = json || cliContext.jsonOutput
+            renderConfig(cliContext, isGlobal = global, isJson = json || cliContext.jsonOutput)
+        }
+    }
+
+    companion object {
+        fun renderConfig(
+            cliContext: CliContext,
+            isGlobal: Boolean,
+            isJson: Boolean,
+        ) {
             val workingDir = cliContext.workingDir
-            val configFile = AiKanbanConfigLoader.findConfigFile(workingDir)
-            val config = AiKanbanConfigLoader.load(workingDir)
+            val projectFile = AiKanbanConfigLoader.findConfigFile(workingDir)
+            val globalFile = AiKanbanConfigLoader.findGlobalConfigFile()
+            val targetGlobalFile = AiKanbanConfigLoader.getGlobalConfigFile()
+
+            val config =
+                if (isGlobal) {
+                    AiKanbanConfigLoader.loadGlobal()
+                } else {
+                    AiKanbanConfigLoader.load(workingDir)
+                }
+
+            val displayedConfigFile = if (isGlobal) (globalFile ?: targetGlobalFile).absolutePath else projectFile?.absolutePath
 
             if (isJson) {
                 val result =
                     ConfigShowResult(
-                        configFile = configFile?.absolutePath,
+                        configFile = displayedConfigFile,
+                        globalConfigFile = (globalFile ?: targetGlobalFile).absolutePath,
+                        isGlobal = isGlobal,
                         provider = config.provider,
                         defaultBaseBranch = config.defaultBaseBranch,
                         repo = config.repo,
                         branchPrefix = config.branchPrefix,
                         tokenConfigured = !config.token.isNullOrBlank(),
+                        verify = config.verify,
+                        hooks = config.hooks,
+                        workflows = config.workflows.keys.toList(),
                     )
                 println(JsonRenderer.render(result))
             } else {
                 val t = cliContext.terminal
-                t.println(bold(cyan("AiKanban Configuration")))
-                val fileDisplay = if (configFile != null) green(configFile.absolutePath) else yellow("(none, using defaults)")
-                t.println("  • Config file: $fileDisplay")
+                val title = if (isGlobal) "AiKanban Global Configuration" else "AiKanban Configuration (Merged Active)"
+                t.println(bold(cyan(title)))
+                if (isGlobal) {
+                    val fileDisplay =
+                        if (globalFile != null) {
+                            green(
+                                globalFile.absolutePath,
+                            )
+                        } else {
+                            yellow("${targetGlobalFile.absolutePath} (not created yet)")
+                        }
+                    t.println("  • Global config file: $fileDisplay")
+                } else {
+                    val fileDisplay =
+                        if (projectFile != null) {
+                            green(
+                                projectFile.absolutePath,
+                            )
+                        } else {
+                            yellow("(none, using defaults & global)")
+                        }
+                    val globalDisplay = if (globalFile != null) green(globalFile.absolutePath) else yellow("(none)")
+                    t.println("  • Project config file: $fileDisplay")
+                    t.println("  • Global config file:  $globalDisplay")
+                }
                 t.println("  • Provider: ${blue(config.provider)}")
                 t.println("  • Default base branch: ${config.defaultBaseBranch}")
                 t.println("  • Repository: ${config.repo ?: "(not set)"}")
                 t.println("  • Branch prefix: ${config.branchPrefix}")
                 t.println("  • Token configured: ${if (!config.token.isNullOrBlank()) "yes" else "no"}")
+                if (config.verify.isNotEmpty()) {
+                    t.println("  • Verify commands: ${config.verify.joinToString(", ")}")
+                }
+                if (config.hooks.isNotEmpty()) {
+                    t.println("  • Hooks: ${config.hooks.keys.joinToString(", ")}")
+                }
+                if (config.workflows.isNotEmpty()) {
+                    t.println("  • Custom workflows: ${config.workflows.keys.joinToString(", ")}")
+                }
             }
         }
     }
 }
 
 class ConfigShowCommand : CliktCommand(name = "show") {
-    override fun help(context: Context): String = "Display current active configuration and configuration file location"
+    override fun help(context: Context): String = "Display current active or global configuration and file locations"
 
     private val cliContext by requireObject<CliContext>()
+    private val global by option("-g", "--global", help = "Display global configuration").flag(default = false)
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
-        val isJson = json || cliContext.jsonOutput
-        val workingDir = cliContext.workingDir
-        val configFile = AiKanbanConfigLoader.findConfigFile(workingDir)
-        val config = AiKanbanConfigLoader.load(workingDir)
-
-        if (isJson) {
-            val result =
-                ConfigShowResult(
-                    configFile = configFile?.absolutePath,
-                    provider = config.provider,
-                    defaultBaseBranch = config.defaultBaseBranch,
-                    repo = config.repo,
-                    branchPrefix = config.branchPrefix,
-                    tokenConfigured = !config.token.isNullOrBlank(),
-                )
-            println(JsonRenderer.render(result))
-        } else {
-            val t = cliContext.terminal
-            t.println(bold(cyan("AiKanban Configuration")))
-            val fileDisplay = if (configFile != null) green(configFile.absolutePath) else yellow("(none, using defaults)")
-            t.println("  • Config file: $fileDisplay")
-            t.println("  • Provider: ${blue(config.provider)}")
-            t.println("  • Default base branch: ${config.defaultBaseBranch}")
-            t.println("  • Repository: ${config.repo ?: "(not set)"}")
-            t.println("  • Branch prefix: ${config.branchPrefix}")
-            t.println("  • Token configured: ${if (!config.token.isNullOrBlank()) "yes" else "no"}")
-        }
+        ConfigCommand.renderConfig(cliContext, isGlobal = global, isJson = json || cliContext.jsonOutput)
     }
 }
 
 class ConfigInitCommand : CliktCommand(name = "init") {
-    override fun help(context: Context): String = "Initialize or reconfigure .aikanban.json"
+    override fun help(context: Context): String = "Initialize or reconfigure project or global configuration"
 
     private val cliContext by requireObject<CliContext>()
 
+    private val global by option("-g", "--global", help = "Initialize global configuration").flag(default = false)
     private val provider by option("--provider", help = "VCS Provider (local-git, github)")
     private val repo by option("--repo", help = "GitHub repository (owner/repo)")
     private val base by option("--base", help = "Default base branch (e.g. main)")
@@ -129,13 +166,12 @@ class ConfigInitCommand : CliktCommand(name = "init") {
     override fun run() {
         val isJson = json || cliContext.jsonOutput
         val workingDir = cliContext.workingDir
-        val configFile = File(workingDir, ".aikanban.json")
 
         val hasDirectFlags = provider != null || repo != null || base != null || prefix != null || token != null
 
         val config =
-            if (hasDirectFlags) {
-                val current = if (configFile.exists() && !force) AiKanbanConfigLoader.load(workingDir) else AiKanbanConfig()
+            if (global) {
+                val current = if (!force) AiKanbanConfigLoader.loadGlobal() else AiKanbanConfig()
                 val updated =
                     current.copy(
                         provider = provider ?: current.provider,
@@ -144,44 +180,78 @@ class ConfigInitCommand : CliktCommand(name = "init") {
                         branchPrefix = prefix ?: current.branchPrefix,
                         token = token ?: current.token,
                     )
-                AiKanbanConfigLoader.save(updated, workingDir)
+                val targetFile = AiKanbanConfigLoader.saveGlobal(updated)
+                if (!isJson) {
+                    val t = cliContext.terminal
+                    t.println(bold(green("✓ Initialized global configuration in ${targetFile.absolutePath}")))
+                    t.println("  • Provider: ${blue(updated.provider)}")
+                    t.println("  • Base branch: ${updated.defaultBaseBranch}")
+                }
                 updated
             } else {
-                AiKanbanConfigLoader.ensureProviderConfig(
-                    workingDir = workingDir,
-                    prompter = cliContext.prompter,
-                    gitCommandRunner = cliContext.gitCommandRunner,
-                    forcePrompt = force,
-                )
+                val configFile = File(workingDir, ".aikanban.json")
+                if (hasDirectFlags) {
+                    val current =
+                        if (configFile.exists() && !force) {
+                            AiKanbanConfigLoader.load(
+                                workingDir,
+                                mergeGlobal = false,
+                            )
+                        } else {
+                            AiKanbanConfig()
+                        }
+                    val updated =
+                        current.copy(
+                            provider = provider ?: current.provider,
+                            repo = repo ?: current.repo,
+                            defaultBaseBranch = base ?: current.defaultBaseBranch,
+                            branchPrefix = prefix ?: current.branchPrefix,
+                            token = token ?: current.token,
+                        )
+                    AiKanbanConfigLoader.save(updated, workingDir)
+                    if (!isJson) {
+                        val t = cliContext.terminal
+                        t.println(bold(green("✓ Initialized configuration in ${File(workingDir, ".aikanban.json").absolutePath}")))
+                        t.println("  • Provider: ${blue(updated.provider)}")
+                        if (updated.repo != null) {
+                            t.println("  • Repo: ${updated.repo}")
+                        }
+                        t.println("  • Base branch: ${updated.defaultBaseBranch}")
+                    }
+                    updated
+                } else {
+                    AiKanbanConfigLoader.ensureProviderConfig(
+                        workingDir = workingDir,
+                        prompter = cliContext.prompter,
+                        gitCommandRunner = cliContext.gitCommandRunner,
+                        forcePrompt = force,
+                    )
+                }
             }
 
         if (isJson) {
             println(JsonRenderer.render(config))
-        } else {
-            val t = cliContext.terminal
-            t.println(bold(green("✓ Initialized configuration in ${File(workingDir, ".aikanban.json").absolutePath}")))
-            t.println("  • Provider: ${blue(config.provider)}")
-            if (config.repo != null) {
-                t.println("  • Repo: ${config.repo}")
-            }
-            t.println("  • Base branch: ${config.defaultBaseBranch}")
         }
     }
 }
 
 class ConfigSetCommand : CliktCommand(name = "set") {
-    override fun help(context: Context): String = "Set a configuration property in .aikanban.json"
+    override fun help(context: Context): String = "Set a configuration property in project or global configuration"
 
     private val cliContext by requireObject<CliContext>()
 
-    private val key by argument("key", help = "Configuration key (provider, repo, defaultBaseBranch/base, branchPrefix/prefix, token)")
+    private val global by option("-g", "--global", help = "Set property in global configuration").flag(default = false)
+    private val key by argument(
+        "key",
+        help = "Configuration key (provider, repo, defaultBaseBranch/base, branchPrefix/prefix, token, verify)",
+    )
     private val value by argument("value", help = "Configuration value")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
         val workingDir = cliContext.workingDir
-        val current = AiKanbanConfigLoader.load(workingDir)
+        val current = if (global) AiKanbanConfigLoader.loadGlobal() else AiKanbanConfigLoader.load(workingDir, mergeGlobal = false)
 
         val updated =
             when (key.lowercase()) {
@@ -190,19 +260,21 @@ class ConfigSetCommand : CliktCommand(name = "set") {
                 "defaultbasebranch", "base", "branch" -> current.copy(defaultBaseBranch = value)
                 "branchprefix", "prefix" -> current.copy(branchPrefix = value)
                 "token" -> current.copy(token = value.takeIf { it.isNotBlank() })
+                "verify" -> current.copy(verify = value.split(",").map { it.trim() }.filter { it.isNotBlank() })
                 else ->
                     throw IllegalArgumentException(
-                        "Unknown config key: '$key'. Valid keys: provider, repo, defaultBaseBranch, branchPrefix, token",
+                        "Unknown config key: '$key'. Valid keys: provider, repo, defaultBaseBranch, branchPrefix, token, verify",
                     )
             }
 
-        val targetFile = AiKanbanConfigLoader.save(updated, workingDir)
+        val targetFile = if (global) AiKanbanConfigLoader.saveGlobal(updated) else AiKanbanConfigLoader.save(updated, workingDir)
 
         if (isJson) {
             println(JsonRenderer.render(updated))
         } else {
             val t = cliContext.terminal
-            t.println(bold(green("✓ Set $key = $value in ${targetFile.absolutePath}")))
+            val scope = if (global) "global configuration" else "configuration"
+            t.println(bold(green("✓ Set $key = $value in $scope (${targetFile.absolutePath})")))
         }
     }
 }

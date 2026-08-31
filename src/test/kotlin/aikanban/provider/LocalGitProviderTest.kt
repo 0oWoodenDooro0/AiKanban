@@ -183,4 +183,17 @@ class LocalGitProviderTest {
             assertEquals("local-git", result.provider)
             assertNotNull(result.tasks)
         }
+
+    @Test
+    @DisplayName("Should simulate approve and request changes pull request locally")
+    fun testApproveAndRequestChangesPullRequest() =
+        runBlocking {
+            val approveReq = ApprovePullRequestRequest("local://pull/feature/local-offline-task", "Approved")
+            val approveSuccess = provider.approvePullRequest(approveReq)
+            assertTrue(approveSuccess)
+
+            val reqChangesReq = RequestChangesPullRequestRequest("local://pull/feature/local-offline-task", "Rework requested")
+            val reqChangesSuccess = provider.requestChangesPullRequest(reqChangesReq)
+            assertTrue(reqChangesSuccess)
+        }
 }

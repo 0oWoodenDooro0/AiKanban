@@ -399,4 +399,136 @@ class GitHubProviderTest {
         assertTrue(exception.message!!.contains("Failed to create GitHub pull request"))
         assertTrue(exception.message!!.contains("already exists"))
     }
+
+    @Test
+    @DisplayName("Should execute gh pr review --approve with comment successfully")
+    fun testApprovePullRequestWithComment() =
+        runBlocking {
+            fakeGhRunner.responseHandler = {
+                GitProcessResult(exitCode = 0, stdout = "Approved", stderr = "")
+            }
+
+            val request =
+                ApprovePullRequestRequest(
+                    prNumberOrUrl = "https://github.com/owner/repo/pull/77",
+                    comment = "LGTM: approved!",
+                )
+
+            val success = provider.approvePullRequest(request)
+            assertTrue(success)
+
+            val reviewCmd = fakeGhRunner.executedCommands.firstOrNull { it.contains("review") }
+            assertNotNull(reviewCmd)
+            assertEquals(
+                listOf("pr", "review", "https://github.com/owner/repo/pull/77", "--approve", "--body", "LGTM: approved!"),
+                reviewCmd,
+            )
+        }
+
+    @Test
+    @DisplayName("Should execute gh pr review --approve without comment when comment is null")
+    fun testApprovePullRequestWithoutComment() =
+        runBlocking {
+            fakeGhRunner.responseHandler = {
+                GitProcessResult(exitCode = 0, stdout = "Approved", stderr = "")
+            }
+
+            val request =
+                ApprovePullRequestRequest(
+                    prNumberOrUrl = "https://github.com/owner/repo/pull/77",
+                    comment = null,
+                )
+
+            val success = provider.approvePullRequest(request)
+            assertTrue(success)
+
+            val reviewCmd = fakeGhRunner.executedCommands.firstOrNull { it.contains("review") }
+            assertNotNull(reviewCmd)
+            assertEquals(
+                listOf("pr", "review", "https://github.com/owner/repo/pull/77", "--approve"),
+                reviewCmd,
+            )
+        }
+
+    @Test
+    @DisplayName("Should append --repo flag when approving PR with numeric ID")
+    fun testApprovePullRequestWithRepoFlagForNumber() =
+        runBlocking {
+            fakeGhRunner.responseHandler = {
+                GitProcessResult(exitCode = 0, stdout = "Approved", stderr = "")
+            }
+
+            val request =
+                ApprovePullRequestRequest(
+                    prNumberOrUrl = "77",
+                    comment = "Approved numeric",
+                )
+
+            val success = provider.approvePullRequest(request)
+            assertTrue(success)
+
+            val reviewCmd = fakeGhRunner.executedCommands.firstOrNull { it.contains("review") }
+            assertNotNull(reviewCmd)
+            assertEquals(
+                listOf("pr", "review", "77", "--approve", "--body", "Approved numeric", "--repo", "owner/repo"),
+                reviewCmd,
+            )
+        }
+
+    @Test
+    @DisplayName("Should execute gh pr review --request-changes with comment successfully")
+    fun testRequestChangesPullRequestWithComment() =
+        runBlocking {
+            fakeGhRunner.responseHandler = {
+                GitProcessResult(exitCode = 0, stdout = "Changes requested", stderr = "")
+            }
+
+            val request =
+                RequestChangesPullRequestRequest(
+                    prNumberOrUrl = "https://github.com/owner/repo/pull/77",
+                    comment = "Please address unit test failure",
+                )
+
+            val success = provider.requestChangesPullRequest(request)
+            assertTrue(success)
+
+            val reviewCmd = fakeGhRunner.executedCommands.firstOrNull { it.contains("review") }
+            assertNotNull(reviewCmd)
+            assertEquals(
+                listOf(
+                    "pr",
+                    "review",
+                    "https://github.com/owner/repo/pull/77",
+                    "--request-changes",
+                    "--body",
+                    "Please address unit test failure",
+                ),
+                reviewCmd,
+            )
+        }
+
+    @Test
+    @DisplayName("Should append --repo flag when requesting changes on PR with numeric ID")
+    fun testRequestChangesPullRequestWithRepoFlagForNumber() =
+        runBlocking {
+            fakeGhRunner.responseHandler = {
+                GitProcessResult(exitCode = 0, stdout = "Changes requested", stderr = "")
+            }
+
+            val request =
+                RequestChangesPullRequestRequest(
+                    prNumberOrUrl = "77",
+                    comment = "Rework needed",
+                )
+
+            val success = provider.requestChangesPullRequest(request)
+            assertTrue(success)
+
+            val reviewCmd = fakeGhRunner.executedCommands.firstOrNull { it.contains("review") }
+            assertNotNull(reviewCmd)
+            assertEquals(
+                listOf("pr", "review", "77", "--request-changes", "--body", "Rework needed", "--repo", "owner/repo"),
+                reviewCmd,
+            )
+        }
 }

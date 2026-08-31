@@ -151,7 +151,17 @@ interface IssueTrackerProvider {
 
     suspend fun approvePullRequest(request: ApprovePullRequestRequest): Boolean = true
 
+    suspend fun approvePullRequest(
+        prNumberOrUrl: String,
+        comment: String? = null,
+    ): Boolean = approvePullRequest(ApprovePullRequestRequest(prNumberOrUrl = prNumberOrUrl, comment = comment))
+
     suspend fun requestChangesPullRequest(request: RequestChangesPullRequestRequest): Boolean = true
+
+    suspend fun requestChangesPullRequest(
+        prNumberOrUrl: String,
+        comment: String,
+    ): Boolean = requestChangesPullRequest(RequestChangesPullRequestRequest(prNumberOrUrl = prNumberOrUrl, comment = comment))
 
     suspend fun mergePullRequest(request: MergePullRequestRequest): Boolean = true
 

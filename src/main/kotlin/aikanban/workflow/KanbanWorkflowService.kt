@@ -96,6 +96,7 @@ data class CustomWorkflowResult(
 data class StartTaskRequest(
     val taskId: Int,
     val assignee: String? = null,
+    val checkoutBranch: Boolean = true,
     val operator: String = "workflow",
 )
 
@@ -188,7 +189,10 @@ interface KanbanWorkflowService {
         workingDir: File? = null,
     ): CustomWorkflowResult
 
-    suspend fun startTask(request: StartTaskRequest): Task
+    suspend fun startTask(
+        request: StartTaskRequest,
+        workingDir: File? = null,
+    ): Task
 
     suspend fun commitTask(
         request: CommitTaskRequest,
@@ -212,6 +216,34 @@ class DefaultKanbanWorkflowService(
                 .take(50)
                 .trim('-')
         }
+    }
+
+    private fun resolveTaskBranch(
+        task: Task,
+        workingDir: File?,
+        fallbackToGenerated: Boolean = false,
+    ): String? {
+        if (!task.branch.isNullOrBlank()) {
+            return task.branch
+        }
+
+        val branchFromLog =
+            task.logs.reversed().firstNotNullOfOrNull { log ->
+                val text = log.comment
+                Regex("""(?:Created|Switched to|Created and switched to)\s+branch\s+([^\s]+)""").find(text)?.groupValues?.get(1)
+            }
+        if (branchFromLog != null) return branchFromLog
+
+        if (task.githubPrUrl != null && task.githubPrUrl.startsWith("local://pull/")) {
+            return task.githubPrUrl.removePrefix("local://pull/")
+        }
+
+        val cur = gitCommandRunner.getCurrentBranch(workingDir)
+        if (cur != "HEAD" && cur.isNotBlank() && cur != config.defaultBaseBranch && cur != "main") {
+            return cur
+        }
+
+        return if (fallbackToGenerated) "${config.branchPrefix}${slugify(task.title)}" else null
     }
 
     override suspend fun startIssue(request: StartIssueRequest): StartIssueResult {
@@ -240,6 +272,7 @@ class DefaultKanbanWorkflowService(
                     priority = request.priority,
                     assignee = request.assignee,
                     tags = request.tags,
+                    branch = branchName,
                     githubIssueUrl = issueResult.url,
                     status = "TODO",
                 )
@@ -261,6 +294,7 @@ class DefaultKanbanWorkflowService(
                 priority = request.priority,
                 assignee = request.assignee,
                 tags = request.tags,
+                branch = branchName,
                 githubIssueUrl = issueResult.url,
                 status = "TODO",
                 operator = request.operator,
@@ -308,6 +342,7 @@ class DefaultKanbanWorkflowService(
 
         val headBranch =
             request.headBranch?.trim()?.takeIf { it.isNotBlank() }
+                ?: task.branch
                 ?: gitCommandRunner.getCurrentBranch()
         val prTitle = request.title?.trim()?.takeIf { it.isNotBlank() } ?: task.title
         val prBody = request.body ?: task.description
@@ -451,8 +486,17 @@ class DefaultKanbanWorkflowService(
         )
     }
 
-    override suspend fun startTask(request: StartTaskRequest): Task {
+    override suspend fun startTask(
+        request: StartTaskRequest,
+        workingDir: File?,
+    ): Task {
+        val dir = workingDir ?: File(".")
         val task = kanbanService.getTask(request.taskId)
+        val branchName = resolveTaskBranch(task, dir, fallbackToGenerated = true)
+        if (request.checkoutBranch && branchName != null && gitCommandRunner.isGitRepository(dir)) {
+            gitCommandRunner.checkoutBranch(branchName, createIfMissing = false, workingDir = dir)
+        }
+
         return kanbanService.moveTask(
             taskId = task.id,
             toStatus = "IN_PROGRESS",

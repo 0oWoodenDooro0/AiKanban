@@ -204,6 +204,23 @@ class AiKanbanCliTest {
             val task = json.decodeFromString<Task>(result.stdout)
             assertEquals("Global Json Task", task.title)
         }
+
+        @Test
+        @DisplayName("Should create task with branch option in add command")
+        fun testAddTaskWithBranch() {
+            val result =
+                execute(
+                    "add",
+                    "Task with Branch",
+                    "-b",
+                    "feature/cli-task-branch",
+                    "--json",
+                )
+            assertEquals(0, result.exitCode)
+            val task = json.decodeFromString<Task>(result.stdout)
+            assertEquals("Task with Branch", task.title)
+            assertEquals("feature/cli-task-branch", task.branch)
+        }
     }
 
     // ==========================================
@@ -656,6 +673,23 @@ class AiKanbanCliTest {
             assertEquals("https://github.com/myorg/newrepo/pull/42", updated.githubPrUrl)
             assertEquals(2, updated.logs.size)
             assertEquals("Comprehensive update", updated.logs.last().comment)
+        }
+
+        @Test
+        @DisplayName("Should update task branch via -b option")
+        fun testUpdateTaskWithBranch() {
+            val task = service.createTask(title = "Task To Update Branch", status = "TODO")
+            val result =
+                execute(
+                    "update",
+                    task.id.toString(),
+                    "-b",
+                    "feature/cli-updated-branch",
+                    "--json",
+                )
+            assertEquals(0, result.exitCode)
+            val updated = json.decodeFromString<Task>(result.stdout)
+            assertEquals("feature/cli-updated-branch", updated.branch)
         }
     }
 

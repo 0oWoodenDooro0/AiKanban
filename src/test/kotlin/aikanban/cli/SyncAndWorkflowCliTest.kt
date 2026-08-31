@@ -253,6 +253,32 @@ class SyncAndWorkflowCliTest {
         }
 
         @Test
+        @DisplayName("Should execute workflow start-task with automatic branch checkout")
+        fun testWorkflowStartTaskWithAutoCheckoutCli() {
+            val task = service.createTask(title = "Branch Task", status = "TODO", branch = "feature/cli-auto-branch")
+            fakeGitRunner.currentBranch = "main"
+
+            val result = execute("workflow", "start-task", task.id.toString(), "--json")
+            assertEquals(0, result.exitCode)
+            val updated = service.getTask(task.id)
+            assertEquals("IN_PROGRESS", updated.status)
+            assertEquals("feature/cli-auto-branch", fakeGitRunner.currentBranch)
+        }
+
+        @Test
+        @DisplayName("Should execute workflow start-task with --no-checkout flag")
+        fun testWorkflowStartTaskWithNoCheckoutCli() {
+            val task = service.createTask(title = "No Checkout Task", status = "TODO", branch = "feature/cli-no-checkout")
+            fakeGitRunner.currentBranch = "main"
+
+            val result = execute("workflow", "start-task", task.id.toString(), "--no-checkout", "--json")
+            assertEquals(0, result.exitCode)
+            val updated = service.getTask(task.id)
+            assertEquals("IN_PROGRESS", updated.status)
+            assertEquals("main", fakeGitRunner.currentBranch)
+        }
+
+        @Test
         @DisplayName("Should execute workflow commit in CLI")
         fun testWorkflowCommitCli() {
             val task = service.createTask(title = "Task In Dev", status = "IN_PROGRESS")

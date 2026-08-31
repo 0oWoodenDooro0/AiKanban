@@ -262,6 +262,7 @@ class WorkflowStartTaskCommand : CliktCommand(name = "start-task") {
 
     private val taskId by argument("taskId", help = "Task ID").int()
     private val assignee by option("-a", "--assignee", help = "Assigned user or agent name")
+    private val noCheckout by option("--no-checkout", help = "Skip checking out feature branch locally").flag(default = false)
     private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
@@ -273,8 +274,10 @@ class WorkflowStartTaskCommand : CliktCommand(name = "start-task") {
                     StartTaskRequest(
                         taskId = taskId,
                         assignee = assignee,
+                        checkoutBranch = !noCheckout,
                         operator = operator,
                     ),
+                    workingDir = cliContext.workingDir,
                 )
             }
 
@@ -283,6 +286,9 @@ class WorkflowStartTaskCommand : CliktCommand(name = "start-task") {
         } else {
             val t = cliContext.terminal
             t.println(bold(green("✓ Started Task #${task.id}: \"${task.title}\" (Status: ${task.status})")))
+            if (task.branch != null) {
+                t.println(blue("  • Branch: ${task.branch}"))
+            }
             HumanRenderer.renderTaskDetail(t, task)
         }
     }

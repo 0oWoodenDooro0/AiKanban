@@ -25,6 +25,13 @@ interface GitCommandRunner {
         workingDir: File? = null,
     ): GitProcessResult
 
+    fun checkoutBranch(
+        branchName: String,
+        createIfMissing: Boolean = false,
+        baseBranch: String? = null,
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
     fun isGitRepository(workingDir: File? = null): Boolean
 
     fun getRemoteUrl(
@@ -99,6 +106,25 @@ class DefaultGitCommandRunner(
                 listOf("git", "push", "-u", remote, branchName)
             } else {
                 listOf("git", "push", remote, branchName)
+            }
+        return runProcess(args, workingDir)
+    }
+
+    override fun checkoutBranch(
+        branchName: String,
+        createIfMissing: Boolean,
+        baseBranch: String?,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args =
+            if (createIfMissing) {
+                if (baseBranch != null) {
+                    listOf("git", "checkout", "-B", branchName, baseBranch)
+                } else {
+                    listOf("git", "checkout", "-B", branchName)
+                }
+            } else {
+                listOf("git", "checkout", branchName)
             }
         return runProcess(args, workingDir)
     }

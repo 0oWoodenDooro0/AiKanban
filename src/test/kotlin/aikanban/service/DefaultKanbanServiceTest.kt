@@ -717,4 +717,30 @@ class DefaultKanbanServiceTest {
             assertEquals(taskCount, nonNullClaims.size)
             assertEquals(taskCount, nonNullClaims.map { it.id }.toSet().size)
         }
+
+    @Test
+    @DisplayName("Should create and update task with explicit branch name")
+    fun testCreateAndUpdateTaskWithBranch() {
+        val created =
+            service.createTask(
+                title = "Task with branch",
+                branch = "feature/service-test-branch",
+                status = "TODO",
+            )
+        assertNotNull(created)
+        assertEquals("feature/service-test-branch", created.branch)
+
+        val fetched = service.getTask(created.id)
+        assertEquals("feature/service-test-branch", fetched.branch)
+
+        val updated =
+            service.updateTask(
+                taskId = created.id,
+                branch = "feature/service-test-branch-v2",
+            )
+        assertEquals("feature/service-test-branch-v2", updated.branch)
+
+        val fetchedUpdated = service.getTask(created.id)
+        assertEquals("feature/service-test-branch-v2", fetchedUpdated.branch)
+    }
 }

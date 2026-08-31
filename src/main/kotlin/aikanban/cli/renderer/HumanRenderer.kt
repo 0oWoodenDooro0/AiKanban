@@ -124,8 +124,13 @@ object HumanRenderer {
                     )
                     row(bold("Repo:"), task.githubRepo ?: dim("-"), bold("Updated:"), dim(formatTime(task.updatedAt)))
                     row(bold("Issue:"), task.githubIssueUrl ?: dim("-"), bold("Completed:"), dim(formatTime(task.completedAt)))
-                    if (task.githubPrUrl != null) {
-                        row(bold("PR:"), task.githubPrUrl, "", "")
+                    if (task.branch != null || task.githubPrUrl != null) {
+                        row(
+                            bold("Branch:"),
+                            task.branch?.let { blue(it) } ?: dim("-"),
+                            bold("PR:"),
+                            task.githubPrUrl ?: dim("-"),
+                        )
                     }
                 }
             }

@@ -9,13 +9,14 @@ import aikanban.provider.ingestion.DefaultIssueIngestionPipeline
 import aikanban.provider.ingestion.IssueIngestionPipeline
 import aikanban.provider.ingestion.RawIssueData
 import aikanban.service.KanbanService
+import aikanban.service.exception.KanbanException
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 class GitHubProvider(
     private val kanbanService: KanbanService,
     private val gitHubClient: GitHubClient = KtorGitHubClient(),
     private val gitCommandRunner: GitCommandRunner = DefaultGitCommandRunner(),
+    private val ghCliRunner: GhCliRunner = DefaultGhCliRunner(),
     private val workingDir: File = File("."),
     private val defaultRepo: String? = null,
     private val token: String? = null,
@@ -25,31 +26,7 @@ class GitHubProvider(
     override val name: String = "github"
 
     private fun runGh(args: List<String>): GitProcessResult {
-        return try {
-            val process =
-                ProcessBuilder(listOf("gh") + args)
-                    .directory(workingDir.absoluteFile)
-                    .redirectErrorStream(false)
-                    .apply {
-                        if (!token.isNullOrBlank()) {
-                            environment()["GITHUB_TOKEN"] = token
-                        }
-                    }
-                    .start()
-
-            val stdout = process.inputStream.bufferedReader().readText().trim()
-            val stderr = process.errorStream.bufferedReader().readText().trim()
-            val finished = process.waitFor(30, TimeUnit.SECONDS)
-
-            if (!finished) {
-                process.destroyForcibly()
-                GitProcessResult(-1, stdout, "gh command timed out after 30 seconds")
-            } else {
-                GitProcessResult(process.exitValue(), stdout, stderr)
-            }
-        } catch (e: Exception) {
-            GitProcessResult(-1, "", e.message ?: "Failed to execute gh CLI")
-        }
+        return ghCliRunner.runGh(args, workingDir, token)
     }
 
     override fun resolveResource(url: String): ResolvedResource? {
@@ -76,61 +53,128 @@ class GitHubProvider(
         )
     }
 
+    private fun extractIssueUrl(stdout: String): GitHubResource.Issue? {
+        for (line in stdout.lines()) {
+            val trimmed = line.trim()
+            val parsed = GitHubUrlParser.parseIssue(trimmed)
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
+    private fun extractPullRequestUrl(stdout: String): GitHubResource.PullRequest? {
+        for (line in stdout.lines()) {
+            val trimmed = line.trim()
+            val parsed = GitHubUrlParser.parsePullRequest(trimmed)
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
     override suspend fun createIssue(request: CreateIssueRequest): IssueResult {
-        val ghArgs = mutableListOf("issue", "create", "--title", request.title, "--body", request.body)
-        if (request.labels.isNotEmpty()) {
-            ghArgs.add("--label")
-            ghArgs.add(request.labels.joinToString(","))
-        }
-        if (!request.assignee.isNullOrBlank()) {
-            ghArgs.add("--assignee")
-            ghArgs.add(request.assignee)
-        }
-        if (!defaultRepo.isNullOrBlank()) {
-            ghArgs.add("--repo")
-            ghArgs.add(defaultRepo)
-        }
-
-        val res = runGh(ghArgs)
-        val issueUrl =
-            if (res.exitCode == 0 && res.stdout.startsWith("http")) {
-                res.stdout.lines().firstOrNull { it.startsWith("http") } ?: res.stdout
-            } else {
-                val repo = defaultRepo ?: "owner/repo"
-                "https://github.com/$repo/issues/1"
+        fun buildArgs(
+            includeLabels: Boolean,
+            includeAssignee: Boolean,
+        ): List<String> {
+            val ghArgs = mutableListOf("issue", "create", "--title", request.title, "--body", request.body)
+            if (includeLabels && request.labels.isNotEmpty()) {
+                ghArgs.add("--label")
+                ghArgs.add(request.labels.joinToString(","))
             }
+            if (includeAssignee && !request.assignee.isNullOrBlank()) {
+                ghArgs.add("--assignee")
+                ghArgs.add(request.assignee)
+            }
+            if (!defaultRepo.isNullOrBlank()) {
+                ghArgs.add("--repo")
+                ghArgs.add(defaultRepo)
+            }
+            return ghArgs
+        }
 
-        val number = issueUrl.substringAfterLast("/issues/").toIntOrNull()
+        // Attempt 1: Full options (with labels and assignee)
+        var res = runGh(buildArgs(includeLabels = true, includeAssignee = true))
+        var issueResource = if (res.exitCode == 0) extractIssueUrl(res.stdout) else null
+
+        // If failed due to labels, attempt 2 without labels
+        if (issueResource == null && request.labels.isNotEmpty()) {
+            val retryRes = runGh(buildArgs(includeLabels = false, includeAssignee = true))
+            if (retryRes.exitCode == 0) {
+                val parsed = extractIssueUrl(retryRes.stdout)
+                if (parsed != null) {
+                    res = retryRes
+                    issueResource = parsed
+                }
+            }
+        }
+
+        // If failed due to assignee, attempt 3 without assignee
+        if (issueResource == null && !request.assignee.isNullOrBlank()) {
+            val retryRes = runGh(buildArgs(includeLabels = request.labels.isNotEmpty(), includeAssignee = false))
+            if (retryRes.exitCode == 0) {
+                val parsed = extractIssueUrl(retryRes.stdout)
+                if (parsed != null) {
+                    res = retryRes
+                    issueResource = parsed
+                }
+            }
+        }
+
+        // If failed due to both labels and assignee, attempt 4 without both
+        if (issueResource == null && request.labels.isNotEmpty() && !request.assignee.isNullOrBlank()) {
+            val retryRes = runGh(buildArgs(includeLabels = false, includeAssignee = false))
+            if (retryRes.exitCode == 0) {
+                val parsed = extractIssueUrl(retryRes.stdout)
+                if (parsed != null) {
+                    res = retryRes
+                    issueResource = parsed
+                }
+            }
+        }
+
+        if (issueResource == null) {
+            val errorMsg = res.stderr.ifBlank { res.stdout }.ifBlank { "Unknown gh issue create error (exit code ${res.exitCode})" }
+            throw KanbanException("Failed to create GitHub issue: $errorMsg")
+        }
+
         return IssueResult(
-            id = number?.toString() ?: issueUrl,
-            number = number,
+            id = issueResource.number.toString(),
+            number = issueResource.number,
             title = request.title,
-            url = issueUrl,
+            url = issueResource.canonicalUrl,
             body = request.body,
         )
     }
 
     override suspend fun addComment(request: AddIssueCommentRequest): Boolean {
-        val res = runGh(listOf("issue", "comment", request.issueIdOrUrl, "--body", request.comment))
+        val ghArgs = mutableListOf("issue", "comment", request.issueIdOrUrl, "--body", request.comment)
+        if (!defaultRepo.isNullOrBlank() && !request.issueIdOrUrl.startsWith("http")) {
+            ghArgs.add("--repo")
+            ghArgs.add(defaultRepo)
+        }
+        val res = runGh(ghArgs)
         return res.exitCode == 0
     }
 
     override suspend fun createBranch(request: CreateBranchRequest): BranchResult {
         // Try linking with gh issue develop if issue URL / ID is provided
         if (!request.issueIdOrUrl.isNullOrBlank()) {
-            val ghDevelopRes =
-                runGh(
-                    listOf(
-                        "issue",
-                        "develop",
-                        request.issueIdOrUrl,
-                        "--name",
-                        request.branchName,
-                        "--base",
-                        request.baseBranch,
-                        "--checkout",
-                    ),
+            val ghDevelopArgs =
+                mutableListOf(
+                    "issue",
+                    "develop",
+                    request.issueIdOrUrl,
+                    "--name",
+                    request.branchName,
+                    "--base",
+                    request.baseBranch,
+                    "--checkout",
                 )
+            if (!defaultRepo.isNullOrBlank() && !request.issueIdOrUrl.startsWith("http")) {
+                ghDevelopArgs.add("--repo")
+                ghDevelopArgs.add(defaultRepo)
+            }
+            val ghDevelopRes = runGh(ghDevelopArgs)
             if (ghDevelopRes.exitCode == 0) {
                 return BranchResult(
                     branchName = request.branchName,
@@ -178,18 +222,16 @@ class GitHubProvider(
         }
 
         val res = runGh(ghArgs)
-        val prUrl =
-            if (res.exitCode == 0 && res.stdout.startsWith("http")) {
-                res.stdout.lines().firstOrNull { it.startsWith("http") } ?: res.stdout
-            } else {
-                val repo = defaultRepo ?: "owner/repo"
-                "https://github.com/$repo/pull/1"
-            }
+        val prResource = if (res.exitCode == 0) extractPullRequestUrl(res.stdout) else null
 
-        val prNumber = prUrl.substringAfterLast("/pull/").toIntOrNull()
+        if (prResource == null) {
+            val errorMsg = res.stderr.ifBlank { res.stdout }.ifBlank { "Unknown gh pr create error (exit code ${res.exitCode})" }
+            throw KanbanException("Failed to create GitHub pull request: $errorMsg")
+        }
+
         return PullRequestResult(
-            url = prUrl,
-            number = prNumber,
+            url = prResource.canonicalUrl,
+            number = prResource.number,
             title = request.title,
             headBranch = request.headBranch,
             baseBranch = request.baseBranch,

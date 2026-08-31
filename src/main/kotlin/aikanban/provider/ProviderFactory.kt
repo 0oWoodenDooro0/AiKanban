@@ -11,6 +11,7 @@ class ProviderFactory(
     private val kanbanService: KanbanService,
     private val gitHubClient: GitHubClient = KtorGitHubClient(),
     private val gitCommandRunner: GitCommandRunner = DefaultGitCommandRunner(),
+    private val ghCliRunner: GhCliRunner = DefaultGhCliRunner(),
     private val workingDir: File = File("."),
     private val gitHubSyncService: GitHubSyncService? = null,
 ) {
@@ -46,6 +47,7 @@ class ProviderFactory(
                     kanbanService = kanbanService,
                     gitHubClient = gitHubClient,
                     gitCommandRunner = gitCommandRunner,
+                    ghCliRunner = ghCliRunner,
                     workingDir = workingDir,
                     defaultRepo = config.repo,
                     token = config.token,

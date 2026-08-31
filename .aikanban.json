@@ -1,0 +1,6 @@
+{
+  "provider": "github",
+  "defaultBaseBranch": "main",
+  "repo": "0oWoodenDooro0/AiKanban",
+  "branchPrefix": "feature/"
+}

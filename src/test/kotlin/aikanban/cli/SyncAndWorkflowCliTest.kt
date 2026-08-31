@@ -37,7 +37,32 @@ class SyncAndWorkflowCliTest {
     private lateinit var providerFactory: ProviderFactory
     private lateinit var workflowService: DefaultKanbanWorkflowService
     private lateinit var config: AiKanbanConfig
+    private lateinit var testGitHubClient: TestGitHubClient
+    private lateinit var gitHubSyncService: aikanban.github.service.GitHubSyncService
     private val json = Json { ignoreUnknownKeys = true }
+
+    private class TestGitHubClient : aikanban.github.client.GitHubClient {
+        val issues = mutableListOf<aikanban.github.model.GitHubIssueDto>()
+
+        override suspend fun fetchRepositoryIssues(
+            owner: String,
+            repo: String,
+            state: String,
+            labels: Set<String>,
+            token: String?,
+            page: Int,
+            perPage: Int,
+        ): List<aikanban.github.model.GitHubIssueDto> = issues
+
+        override suspend fun fetchIssue(
+            owner: String,
+            repo: String,
+            number: Int,
+            token: String?,
+        ): aikanban.github.model.GitHubIssueDto? = issues.find { it.number == number }
+
+        override fun close() {}
+    }
 
     @BeforeEach
     fun setUp() {
@@ -45,10 +70,13 @@ class SyncAndWorkflowCliTest {
         service = DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:${dbFile.absolutePath}"))
         fakeGitRunner = LocalGitProviderTest.FakeGitCommandRunner()
         config = AiKanbanConfig(provider = "local-git", defaultBaseBranch = "main")
+        testGitHubClient = TestGitHubClient()
+        gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, testGitHubClient)
         providerFactory =
             ProviderFactory(
                 kanbanService = service,
                 gitCommandRunner = fakeGitRunner,
+                gitHubSyncService = gitHubSyncService,
                 workingDir = tempDir.toFile(),
             )
         workflowService =
@@ -89,6 +117,7 @@ class SyncAndWorkflowCliTest {
                     configOverride = config,
                     providerFactoryOverride = providerFactory,
                     workflowServiceOverride = workflowService,
+                    gitHubSyncServiceOverride = gitHubSyncService,
                 )
             val exitCode = command.parseArgs(args.toList())
             return CliExecutionResult(

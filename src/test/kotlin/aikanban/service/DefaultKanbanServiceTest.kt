@@ -470,7 +470,7 @@ class DefaultKanbanServiceTest {
     }
 
     @Test
-    @DisplayName("Should support multi-agent lifecycle helper methods (release, review, request, pending, reopen, complete)")
+    @DisplayName("Should support multi-agent lifecycle operations via moveTask, claimNextTask, and releaseTask")
     fun testLifecycleHelpers() {
         val task = service.createTask(title = "Full Lifecycle Task", status = "TODO")
 
@@ -480,65 +480,71 @@ class DefaultKanbanServiceTest {
         assertEquals("IN_PROGRESS", claimed.status)
         assertEquals("dev-agent", claimed.assignee)
 
-        // 2. Submit for review -> REVIEW
+        // 2. Submit for review -> REVIEW via moveTask
         val inReview =
-            service.submitForReview(
+            service.moveTask(
                 taskId = task.id,
-                agentName = "dev-agent",
+                toStatus = "REVIEW",
+                operator = "dev-agent",
                 prUrl = "https://github.com/0oWoodenDooro0/AiKanban/pull/10",
                 comment = "Ready for review",
             )
         assertEquals("REVIEW", inReview.status)
         assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/10", inReview.githubPrUrl)
 
-        // 3. Request changes -> REQUEST
+        // 3. Request changes -> REQUEST via moveTask
         val requested =
-            service.requestChanges(
+            service.moveTask(
                 taskId = task.id,
-                reviewer = "senior-reviewer",
+                toStatus = "REQUEST",
+                operator = "senior-reviewer",
                 comment = "Please add edge-case unit tests",
             )
         assertEquals("REQUEST", requested.status)
 
-        // 4. Mark pending -> PENDING
+        // 4. Mark pending -> PENDING via moveTask
         val pending =
-            service.markPending(
+            service.moveTask(
                 taskId = task.id,
+                toStatus = "PENDING",
                 operator = "dev-agent",
                 comment = "Waiting for design asset clarification",
             )
         assertEquals("PENDING", pending.status)
 
-        // 5. Submit for review again -> REVIEW
+        // 5. Submit for review again -> REVIEW via moveTask
         val reviewAgain =
-            service.submitForReview(
+            service.moveTask(
                 taskId = task.id,
-                agentName = "dev-agent",
+                toStatus = "REVIEW",
+                operator = "dev-agent",
                 comment = "Added requested tests",
             )
         assertEquals("REVIEW", reviewAgain.status)
 
-        // 6. Approve and complete -> DONE
+        // 6. Approve and complete -> DONE via moveTask
         val completed =
-            service.approveAndComplete(
+            service.moveTask(
                 taskId = task.id,
-                reviewer = "senior-reviewer",
+                toStatus = "DONE",
+                operator = "senior-reviewer",
                 comment = "All tests pass, approved and merged",
             )
         assertEquals("DONE", completed.status)
         assertNotNull(completed.completedAt)
 
-        // 7. Reopen task -> REOPEN
+        // 7. Reopen task -> REOPEN via moveTask (completedAt reset to null)
         val reopened =
-            service.reopenTask(
+            service.moveTask(
                 taskId = task.id,
+                toStatus = "REOPEN",
                 operator = "qa-engineer",
                 comment = "Performance degradation detected under load",
             )
         assertEquals("REOPEN", reopened.status)
         assertNull(reopened.completedAt)
 
-        // 8. Release task -> TODO
+        // 8. Release task -> TODO via releaseTask
         val released =
             service.releaseTask(
                 taskId = task.id,

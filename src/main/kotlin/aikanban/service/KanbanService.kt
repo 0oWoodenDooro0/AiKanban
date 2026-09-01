@@ -87,37 +87,6 @@ interface KanbanService : AutoCloseable {
         comment: String? = null,
     ): Task
 
-    fun submitForReview(
-        taskId: Int,
-        agentName: String,
-        prUrl: String? = null,
-        comment: String? = null,
-    ): Task
-
-    fun requestChanges(
-        taskId: Int,
-        reviewer: String,
-        comment: String,
-    ): Task
-
-    fun markPending(
-        taskId: Int,
-        operator: String,
-        comment: String,
-    ): Task
-
-    fun approveAndComplete(
-        taskId: Int,
-        reviewer: String,
-        comment: String? = null,
-    ): Task
-
-    fun reopenTask(
-        taskId: Int,
-        operator: String,
-        comment: String? = null,
-    ): Task
-
     // Audit Logging
     fun getTaskLogs(taskId: Int): List<TaskLogEntry>
 

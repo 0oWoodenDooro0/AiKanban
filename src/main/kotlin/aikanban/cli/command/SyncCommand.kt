@@ -3,7 +3,6 @@ package aikanban.cli.command
 import aikanban.cli.CliContext
 import aikanban.cli.renderer.HumanRenderer
 import aikanban.cli.renderer.JsonRenderer
-import aikanban.config.AiKanbanConfigLoader
 import aikanban.provider.ProviderSyncRequest
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.Context
@@ -48,15 +47,11 @@ class SyncCommand : CliktCommand(name = "sync") {
         val target = targetUrl ?: targetRepo
 
         val activeConfig =
-            if (provider == null && target == null && !isJson && !AiKanbanConfigLoader.hasConfigFile(cliContext.workingDir)) {
-                AiKanbanConfigLoader.ensureProviderConfig(
-                    workingDir = cliContext.workingDir,
-                    prompter = cliContext.prompter,
-                    gitCommandRunner = cliContext.gitCommandRunner,
-                )
-            } else {
-                cliContext.config
-            }
+            cliContext.ensureConfig(
+                overrideProvider = provider,
+                isJson = isJson,
+                bypassIfTargetSpecified = target != null,
+            )
 
         val activeProvider =
             cliContext.providerFactory.resolve(

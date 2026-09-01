@@ -17,6 +17,7 @@ import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.AfterEach
@@ -80,7 +81,7 @@ class KanbanSseTest {
                             }
                             if (line.isNotBlank()) {
                                 eventList.add(line)
-                                if (eventList.size >= 4) {
+                                if (eventList.size >= 5) {
                                     break
                                 }
                             }
@@ -91,6 +92,7 @@ class KanbanSseTest {
             withTimeout(10000) {
                 connected.await()
             }
+            delay(100)
 
             // Trigger events via service
             val created =
@@ -144,7 +146,7 @@ class KanbanSseTest {
                             }
                             if (line.isNotBlank()) {
                                 eventList.add(line)
-                                if (eventList.size >= 4) {
+                                if (eventList.size >= 5) {
                                     break
                                 }
                             }
@@ -155,6 +157,7 @@ class KanbanSseTest {
             withTimeout(10000) {
                 connected.await()
             }
+            delay(100)
 
             val customCol = BoardColumn(id = "TESTING", name = "Testing Phase", order = 5)
             service.createColumn(customCol)

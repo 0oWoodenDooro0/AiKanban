@@ -3,7 +3,6 @@ package aikanban.cli.command
 import aikanban.cli.CliContext
 import aikanban.cli.renderer.HumanRenderer
 import aikanban.cli.renderer.JsonRenderer
-import aikanban.config.AiKanbanConfigLoader
 import aikanban.model.TaskPriority
 import aikanban.workflow.CommitTaskRequest
 import aikanban.workflow.CompleteReviewWorkflowRequest
@@ -78,16 +77,7 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
         val parsedTags = tags.flatMap { it.split(",") }.map { it.trim() }.filter { it.isNotBlank() }.toSet()
         val effectiveOperator = cliContext.resolveOperator(operator)
 
-        val activeConfig =
-            if (provider == null && !isJson && !AiKanbanConfigLoader.hasConfigFile(cliContext.workingDir)) {
-                AiKanbanConfigLoader.ensureProviderConfig(
-                    workingDir = cliContext.workingDir,
-                    prompter = cliContext.prompter,
-                    gitCommandRunner = cliContext.gitCommandRunner,
-                )
-            } else {
-                cliContext.config
-            }
+        val activeConfig = cliContext.ensureConfig(overrideProvider = provider, isJson = isJson)
 
         val planText =
             plan?.let {
@@ -153,16 +143,7 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
         val isJson = json || cliContext.jsonOutput
         val effectiveOperator = cliContext.resolveOperator(operator)
 
-        val activeConfig =
-            if (provider == null && !isJson && !AiKanbanConfigLoader.hasConfigFile(cliContext.workingDir)) {
-                AiKanbanConfigLoader.ensureProviderConfig(
-                    workingDir = cliContext.workingDir,
-                    prompter = cliContext.prompter,
-                    gitCommandRunner = cliContext.gitCommandRunner,
-                )
-            } else {
-                cliContext.config
-            }
+        val activeConfig = cliContext.ensureConfig(overrideProvider = provider, isJson = isJson)
 
         val prBody =
             bodyFile?.let {

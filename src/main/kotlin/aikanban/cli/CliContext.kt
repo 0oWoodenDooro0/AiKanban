@@ -2,6 +2,7 @@ package aikanban.cli
 
 import aikanban.cli.prompt.InteractivePrompter
 import aikanban.cli.prompt.TerminalInteractivePrompter
+import aikanban.cli.setup.CliSetupWizard
 import aikanban.config.AiKanbanConfig
 import aikanban.config.AiKanbanConfigLoader
 import aikanban.provider.DefaultGitCommandRunner
@@ -45,6 +46,19 @@ data class CliContext(
             gitCommandRunner = gitCommandRunner,
             workingDir = workingDir,
             fallback = fallback,
+        )
+    }
+
+    fun ensureConfig(
+        overrideProvider: String? = null,
+        isJson: Boolean = false,
+        bypassIfTargetSpecified: Boolean = false,
+    ): AiKanbanConfig {
+        return CliSetupWizard.ensureConfig(
+            cliContext = this,
+            overrideProvider = overrideProvider,
+            isJson = isJson,
+            bypassIfTargetSpecified = bypassIfTargetSpecified,
         )
     }
 }

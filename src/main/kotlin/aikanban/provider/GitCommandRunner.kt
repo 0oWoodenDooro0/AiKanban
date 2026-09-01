@@ -1,13 +1,12 @@
 package aikanban.provider
 
+import aikanban.process.DefaultProcessExecutor
+import aikanban.process.ProcessExecutor
+import aikanban.process.ProcessResult
 import java.io.File
-import java.util.concurrent.TimeUnit
+import java.time.Duration
 
-data class GitProcessResult(
-    val exitCode: Int,
-    val stdout: String,
-    val stderr: String,
-)
+typealias GitProcessResult = ProcessResult
 
 interface GitCommandRunner {
     fun getCurrentBranch(workingDir: File? = null): String
@@ -92,37 +91,23 @@ interface GitCommandRunner {
 
 class DefaultGitCommandRunner(
     private val defaultWorkingDir: File = File("."),
+    private val processExecutor: ProcessExecutor = DefaultProcessExecutor(),
 ) : GitCommandRunner {
     private fun runProcess(
         args: List<String>,
         workingDir: File?,
     ): GitProcessResult {
         val dir = (workingDir ?: defaultWorkingDir).absoluteFile
-        return try {
-            val process =
-                ProcessBuilder(args)
-                    .directory(dir)
-                    .redirectErrorStream(false)
-                    .start()
-
-            val stdout = process.inputStream.bufferedReader().readText().trim()
-            val stderr = process.errorStream.bufferedReader().readText().trim()
-            val finished = process.waitFor(30, TimeUnit.SECONDS)
-
-            if (!finished) {
-                process.destroyForcibly()
-                GitProcessResult(-1, stdout, "Process timed out after 30 seconds")
-            } else {
-                GitProcessResult(process.exitValue(), stdout, stderr)
-            }
-        } catch (e: Exception) {
-            GitProcessResult(-1, "", e.message ?: "Failed to execute git process")
-        }
+        return processExecutor.execute(
+            command = args,
+            workingDir = dir,
+            timeout = Duration.ofSeconds(30),
+        )
     }
 
     override fun getCurrentBranch(workingDir: File?): String {
         val res = runProcess(listOf("git", "rev-parse", "--abbrev-ref", "HEAD"), workingDir)
-        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else "HEAD"
+        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout.trim() else "HEAD"
     }
 
     override fun createAndCheckoutBranch(
@@ -223,7 +208,7 @@ class DefaultGitCommandRunner(
         workingDir: File?,
     ): String? {
         val res = runProcess(listOf("git", "remote", "get-url", remote), workingDir)
-        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
+        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout.trim() else null
     }
 
     override fun addFiles(
@@ -268,11 +253,11 @@ class DefaultGitCommandRunner(
 
     override fun getHeadCommitHash(workingDir: File?): String? {
         val res = runProcess(listOf("git", "rev-parse", "HEAD"), workingDir)
-        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
+        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout.trim() else null
     }
 
     override fun getUserName(workingDir: File?): String? {
         val res = runProcess(listOf("git", "config", "user.name"), workingDir)
-        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
+        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout.trim() else null
     }
 }

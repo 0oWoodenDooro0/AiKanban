@@ -4,6 +4,8 @@ import aikanban.config.AiKanbanConfig
 import aikanban.github.service.GitHubUrlParser
 import aikanban.model.Task
 import aikanban.model.TaskPriority
+import aikanban.process.DefaultProcessExecutor
+import aikanban.process.ProcessExecutor
 import aikanban.provider.AddIssueCommentRequest
 import aikanban.provider.ApprovePullRequestRequest
 import aikanban.provider.BranchResult
@@ -22,7 +24,7 @@ import aikanban.provider.UpdateIssueRequest
 import aikanban.service.KanbanService
 import kotlinx.serialization.Serializable
 import java.io.File
-import java.util.concurrent.TimeUnit
+import java.time.Duration
 
 @Serializable
 data class StartIssueRequest(
@@ -196,53 +198,32 @@ interface ShellCommandRunner {
     ): CommandExecutionResult
 }
 
-class DefaultShellCommandRunner : ShellCommandRunner {
+class DefaultShellCommandRunner(
+    private val processExecutor: ProcessExecutor = DefaultProcessExecutor(),
+) : ShellCommandRunner {
     override fun execute(
         command: String,
         workingDir: File,
     ): CommandExecutionResult {
-        val osName = System.getProperty("os.name") ?: ""
-        val isWindows = osName.contains("win", ignoreCase = true)
-        val processBuilder =
-            if (isWindows) {
-                ProcessBuilder("cmd.exe", "/c", command)
-            } else {
-                ProcessBuilder("sh", "-c", command)
-            }
-        processBuilder.directory(workingDir.absoluteFile)
-        processBuilder.redirectErrorStream(false)
-        return try {
-            val process = processBuilder.start()
-            val stdout = process.inputStream.bufferedReader().readText().trim()
-            val stderr = process.errorStream.bufferedReader().readText().trim()
-            val finished = process.waitFor(60, TimeUnit.SECONDS)
-            if (!finished) {
-                process.destroyForcibly()
-                CommandExecutionResult(
-                    command = command,
-                    exitCode = -1,
-                    stdout = stdout,
-                    stderr = "Command timed out after 60 seconds",
-                    success = false,
-                )
-            } else {
-                CommandExecutionResult(
-                    command = command,
-                    exitCode = process.exitValue(),
-                    stdout = stdout,
-                    stderr = stderr,
-                    success = process.exitValue() == 0,
-                )
-            }
-        } catch (e: Exception) {
-            CommandExecutionResult(
+        val result =
+            processExecutor.executeShell(
                 command = command,
-                exitCode = -1,
-                stdout = "",
-                stderr = e.message ?: "Failed to execute command",
-                success = false,
+                workingDir = workingDir.absoluteFile,
+                timeout = Duration.ofSeconds(60),
             )
-        }
+        val stderr =
+            if (result.exitCode == -1 && result.stderr.startsWith("Process timed out")) {
+                "Command timed out after 60 seconds"
+            } else {
+                result.stderr
+            }
+        return CommandExecutionResult(
+            command = command,
+            exitCode = result.exitCode,
+            stdout = result.stdout,
+            stderr = stderr,
+            success = result.isSuccess,
+        )
     }
 }
 

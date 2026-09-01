@@ -1,12 +1,11 @@
 package aikanban.github
 
-import aikanban.github.model.GitHubResource
 import aikanban.github.service.GitHubUrlParser
+import aikanban.provider.ResourceType
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
@@ -15,16 +14,16 @@ class GitHubUrlParserTest {
     @DisplayName("Issue URL Parsing")
     inner class IssueUrlTests {
         @Test
-        @DisplayName("Should parse standard GitHub issue URL")
+        @DisplayName("Should parse standard GitHub issue URL to ResolvedResource")
         fun testParseStandardIssueUrl() {
             val result = GitHubUrlParser.parse("https://github.com/0oWoodenDooro0/AiKanban/issues/6")
             assertNotNull(result)
-            val issue = assertIs<GitHubResource.Issue>(result)
-            assertEquals("0oWoodenDooro0", issue.owner)
-            assertEquals("AiKanban", issue.repo)
-            assertEquals("0oWoodenDooro0/AiKanban", issue.fullRepo)
-            assertEquals(6, issue.number)
-            assertEquals("https://github.com/0oWoodenDooro0/AiKanban/issues/6", issue.canonicalUrl)
+            assertEquals("github", result.provider)
+            assertEquals("0oWoodenDooro0", result.owner)
+            assertEquals("AiKanban", result.repo)
+            assertEquals(ResourceType.ISSUE, result.type)
+            assertEquals(6, result.number)
+            assertEquals("https://github.com/0oWoodenDooro0/AiKanban/issues/6", result.canonicalUrl)
         }
 
         @Test
@@ -32,15 +31,19 @@ class GitHubUrlParserTest {
         fun testParseIssueUrlVariations() {
             val res1 = GitHubUrlParser.parse("http://github.com/owner/my-repo/issues/100/")
             assertNotNull(res1)
-            val issue1 = assertIs<GitHubResource.Issue>(res1)
-            assertEquals("owner", issue1.owner)
-            assertEquals("my-repo", issue1.repo)
-            assertEquals(100, issue1.number)
+            assertEquals("github", res1.provider)
+            assertEquals("owner", res1.owner)
+            assertEquals("my-repo", res1.repo)
+            assertEquals(ResourceType.ISSUE, res1.type)
+            assertEquals(100, res1.number)
 
             val res2 = GitHubUrlParser.parse("github.com/owner/repo/issues/42")
             assertNotNull(res2)
-            val issue2 = assertIs<GitHubResource.Issue>(res2)
-            assertEquals(42, issue2.number)
+            assertEquals("github", res2.provider)
+            assertEquals("owner", res2.owner)
+            assertEquals("repo", res2.repo)
+            assertEquals(ResourceType.ISSUE, res2.type)
+            assertEquals(42, res2.number)
         }
 
         @Test
@@ -49,11 +52,12 @@ class GitHubUrlParserTest {
             val url = "https://github.com/owner/repo/issues/12?notification_referrer_id=123#issuecomment-456789"
             val result = GitHubUrlParser.parse(url)
             assertNotNull(result)
-            val issue = assertIs<GitHubResource.Issue>(result)
-            assertEquals("owner", issue.owner)
-            assertEquals("repo", issue.repo)
-            assertEquals(12, issue.number)
-            assertEquals("https://github.com/owner/repo/issues/12", issue.canonicalUrl)
+            assertEquals("github", result.provider)
+            assertEquals("owner", result.owner)
+            assertEquals("repo", result.repo)
+            assertEquals(ResourceType.ISSUE, result.type)
+            assertEquals(12, result.number)
+            assertEquals("https://github.com/owner/repo/issues/12", result.canonicalUrl)
         }
     }
 
@@ -61,16 +65,16 @@ class GitHubUrlParserTest {
     @DisplayName("Pull Request URL Parsing")
     inner class PullRequestUrlTests {
         @Test
-        @DisplayName("Should parse standard GitHub PR URL")
+        @DisplayName("Should parse standard GitHub PR URL to ResolvedResource")
         fun testParseStandardPullRequestUrl() {
             val result = GitHubUrlParser.parse("https://github.com/0oWoodenDooro0/AiKanban/pull/12")
             assertNotNull(result)
-            val pr = assertIs<GitHubResource.PullRequest>(result)
-            assertEquals("0oWoodenDooro0", pr.owner)
-            assertEquals("AiKanban", pr.repo)
-            assertEquals("0oWoodenDooro0/AiKanban", pr.fullRepo)
-            assertEquals(12, pr.number)
-            assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/12", pr.canonicalUrl)
+            assertEquals("github", result.provider)
+            assertEquals("0oWoodenDooro0", result.owner)
+            assertEquals("AiKanban", result.repo)
+            assertEquals(ResourceType.PULL_REQUEST, result.type)
+            assertEquals(12, result.number)
+            assertEquals("https://github.com/0oWoodenDooro0/AiKanban/pull/12", result.canonicalUrl)
         }
 
         @Test
@@ -78,11 +82,12 @@ class GitHubUrlParserTest {
         fun testParsePullRequestUrlWithSubpath() {
             val result = GitHubUrlParser.parse("https://github.com/owner/repo/pull/15/files#diff-12345")
             assertNotNull(result)
-            val pr = assertIs<GitHubResource.PullRequest>(result)
-            assertEquals("owner", pr.owner)
-            assertEquals("repo", pr.repo)
-            assertEquals(15, pr.number)
-            assertEquals("https://github.com/owner/repo/pull/15", pr.canonicalUrl)
+            assertEquals("github", result.provider)
+            assertEquals("owner", result.owner)
+            assertEquals("repo", result.repo)
+            assertEquals(ResourceType.PULL_REQUEST, result.type)
+            assertEquals(15, result.number)
+            assertEquals("https://github.com/owner/repo/pull/15", result.canonicalUrl)
         }
     }
 
@@ -90,15 +95,16 @@ class GitHubUrlParserTest {
     @DisplayName("Repository Parsing (Full URLs & Short Form)")
     inner class RepositoryParsingTests {
         @Test
-        @DisplayName("Should parse repository full URL")
+        @DisplayName("Should parse repository full URL to ResolvedResource")
         fun testParseRepositoryUrl() {
             val result = GitHubUrlParser.parse("https://github.com/0oWoodenDooro0/AiKanban")
             assertNotNull(result)
-            val repo = assertIs<GitHubResource.Repository>(result)
-            assertEquals("0oWoodenDooro0", repo.owner)
-            assertEquals("AiKanban", repo.repo)
-            assertEquals("0oWoodenDooro0/AiKanban", repo.fullRepo)
-            assertEquals("https://github.com/0oWoodenDooro0/AiKanban", repo.canonicalUrl)
+            assertEquals("github", result.provider)
+            assertEquals("0oWoodenDooro0", result.owner)
+            assertEquals("AiKanban", result.repo)
+            assertEquals(ResourceType.REPOSITORY, result.type)
+            assertNull(result.number)
+            assertEquals("https://github.com/0oWoodenDooro0/AiKanban", result.canonicalUrl)
         }
 
         @Test
@@ -106,9 +112,11 @@ class GitHubUrlParserTest {
         fun testParseRepositoryWithGitSuffix() {
             val result = GitHubUrlParser.parse("https://github.com/owner/repo.git/")
             assertNotNull(result)
-            val repo = assertIs<GitHubResource.Repository>(result)
-            assertEquals("owner", repo.owner)
-            assertEquals("repo", repo.repo)
+            assertEquals("github", result.provider)
+            assertEquals("owner", result.owner)
+            assertEquals("repo", result.repo)
+            assertEquals(ResourceType.REPOSITORY, result.type)
+            assertNull(result.number)
         }
 
         @Test
@@ -116,10 +124,12 @@ class GitHubUrlParserTest {
         fun testParseShortRepoString() {
             val result = GitHubUrlParser.parse("facebook/react")
             assertNotNull(result)
-            val repo = assertIs<GitHubResource.Repository>(result)
-            assertEquals("facebook", repo.owner)
-            assertEquals("react", repo.repo)
-            assertEquals("https://github.com/facebook/react", repo.canonicalUrl)
+            assertEquals("github", result.provider)
+            assertEquals("facebook", result.owner)
+            assertEquals("react", result.repo)
+            assertEquals(ResourceType.REPOSITORY, result.type)
+            assertNull(result.number)
+            assertEquals("https://github.com/facebook/react", result.canonicalUrl)
         }
     }
 
@@ -138,17 +148,39 @@ class GitHubUrlParserTest {
         }
 
         @Test
-        @DisplayName("Direct helper parseIssue and parseRepository methods")
+        @DisplayName("Direct helper parseIssue, parsePullRequest, and parseRepository methods")
         fun testDirectHelperMethods() {
-            assertNotNull(GitHubUrlParser.parseIssue("https://github.com/owner/repo/issues/7"))
+            val issueRes = GitHubUrlParser.parseIssue("https://github.com/owner/repo/issues/7")
+            assertNotNull(issueRes)
+            assertEquals(ResourceType.ISSUE, issueRes.type)
+            assertEquals(7, issueRes.number)
+
             assertNull(GitHubUrlParser.parseIssue("https://github.com/owner/repo/pull/7"))
             assertNull(GitHubUrlParser.parseIssue("owner/repo"))
 
-            assertNotNull(GitHubUrlParser.parsePullRequest("https://github.com/owner/repo/pull/8"))
+            val prRes = GitHubUrlParser.parsePullRequest("https://github.com/owner/repo/pull/8")
+            assertNotNull(prRes)
+            assertEquals(ResourceType.PULL_REQUEST, prRes.type)
+            assertEquals(8, prRes.number)
+
             assertNull(GitHubUrlParser.parsePullRequest("https://github.com/owner/repo/issues/8"))
 
-            assertNotNull(GitHubUrlParser.parseRepository("owner/repo"))
-            assertNotNull(GitHubUrlParser.parseRepository("https://github.com/owner/repo"))
+            val repoRes1 = GitHubUrlParser.parseRepository("owner/repo")
+            assertNotNull(repoRes1)
+            assertEquals(ResourceType.REPOSITORY, repoRes1.type)
+            assertEquals("owner", repoRes1.owner)
+            assertEquals("repo", repoRes1.repo)
+
+            val repoRes2 = GitHubUrlParser.parseRepository("https://github.com/owner/repo")
+            assertNotNull(repoRes2)
+            assertEquals(ResourceType.REPOSITORY, repoRes2.type)
+
+            val repoFromIssue = GitHubUrlParser.parseRepository("https://github.com/owner/repo/issues/10")
+            assertNotNull(repoFromIssue)
+            assertEquals(ResourceType.REPOSITORY, repoFromIssue.type)
+            assertEquals("owner", repoFromIssue.owner)
+            assertEquals("repo", repoFromIssue.repo)
+
             assertNull(GitHubUrlParser.parseRepository("invalid"))
         }
     }

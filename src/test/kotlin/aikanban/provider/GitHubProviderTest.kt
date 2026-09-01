@@ -182,6 +182,184 @@ class GitHubProviderTest {
         }
 
     @Test
+    @DisplayName("Should prevent duplicates and update existing task when syncing repeatedly")
+    fun testDuplicatePreventionAndUpdate() =
+        runBlocking {
+            val initialIssue =
+                GitHubIssueDto(
+                    id = 1,
+                    number = 5,
+                    title = "Initial Title",
+                    body = "Initial Body",
+                    state = "open",
+                    htmlUrl = "https://github.com/owner/repo/issues/5",
+                    labels = listOf(GitHubLabelDto(id = 1, name = "bug")),
+                )
+            fakeClient.issues.add(initialIssue)
+
+            val res1 = provider.sync(ProviderSyncRequest(repoOrUrl = "owner/repo"))
+            assertEquals(1, res1.createdCount)
+            assertEquals(0, res1.updatedCount)
+            assertEquals(1, service.listTasks().size)
+
+            fakeClient.issues.clear()
+            fakeClient.issues.add(
+                initialIssue.copy(
+                    title = "Updated Issue Title",
+                    body = "Updated description body",
+                    labels = listOf(GitHubLabelDto(id = 1, name = "bug"), GitHubLabelDto(id = 2, name = "priority:urgent")),
+                ),
+            )
+
+            val res2 = provider.sync(ProviderSyncRequest(repoOrUrl = "owner/repo"))
+            assertEquals(0, res2.createdCount)
+            assertEquals(1, res2.updatedCount)
+            assertEquals(1, service.listTasks().size)
+
+            val updatedTask = service.listTasks().first()
+            assertEquals("Updated Issue Title", updatedTask.title)
+            assertEquals("Updated description body", updatedTask.description)
+            assertEquals(TaskPriority.URGENT, updatedTask.priority)
+        }
+
+    @Test
+    @DisplayName("Should map priority from issue labels correctly")
+    fun testPriorityLabelMapping() =
+        runBlocking {
+            fakeClient.issues.addAll(
+                listOf(
+                    GitHubIssueDto(
+                        id = 1,
+                        number = 1,
+                        title = "Urgent Bug",
+                        state = "open",
+                        htmlUrl = "https://github.com/owner/repo/issues/1",
+                        labels = listOf(GitHubLabelDto(name = "p0")),
+                    ),
+                    GitHubIssueDto(
+                        id = 2,
+                        number = 2,
+                        title = "High Feature",
+                        state = "open",
+                        htmlUrl = "https://github.com/owner/repo/issues/2",
+                        labels = listOf(GitHubLabelDto(name = "priority:high")),
+                    ),
+                    GitHubIssueDto(
+                        id = 3,
+                        number = 3,
+                        title = "Low Chore",
+                        state = "open",
+                        htmlUrl = "https://github.com/owner/repo/issues/3",
+                        labels = listOf(GitHubLabelDto(name = "p3")),
+                    ),
+                    GitHubIssueDto(
+                        id = 4,
+                        number = 4,
+                        title = "Default Medium",
+                        state = "open",
+                        htmlUrl = "https://github.com/owner/repo/issues/4",
+                        labels = listOf(GitHubLabelDto(name = "enhancement")),
+                    ),
+                ),
+            )
+
+            provider.sync(ProviderSyncRequest(repoOrUrl = "owner/repo"))
+            val tasks = service.listTasks()
+
+            assertEquals(TaskPriority.URGENT, tasks.find { it.title == "Urgent Bug" }?.priority)
+            assertEquals(TaskPriority.HIGH, tasks.find { it.title == "High Feature" }?.priority)
+            assertEquals(TaskPriority.LOW, tasks.find { it.title == "Low Chore" }?.priority)
+            assertEquals(TaskPriority.MEDIUM, tasks.find { it.title == "Default Medium" }?.priority)
+        }
+
+    @Test
+    @DisplayName("Should sync closed issues to DONE column and set completed timestamp")
+    fun testSyncClosedIssues() =
+        runBlocking {
+            fakeClient.issues.add(
+                GitHubIssueDto(
+                    id = 1,
+                    number = 20,
+                    title = "Completed Issue",
+                    state = "closed",
+                    htmlUrl = "https://github.com/owner/repo/issues/20",
+                ),
+            )
+
+            provider.sync(ProviderSyncRequest(repoOrUrl = "owner/repo", state = "closed"))
+            val task = service.listTasks().first()
+
+            assertEquals("DONE", task.status)
+            assertNotNull(task.completedAt)
+        }
+
+    @Test
+    @DisplayName("Should exclude pull requests when includePullRequests is false")
+    fun testExcludePullRequestsByDefault() =
+        runBlocking {
+            fakeClient.issues.addAll(
+                listOf(
+                    GitHubIssueDto(
+                        id = 1,
+                        number = 1,
+                        title = "Pure Issue",
+                        state = "open",
+                        htmlUrl = "https://github.com/owner/repo/issues/1",
+                        pullRequest = null,
+                    ),
+                    GitHubIssueDto(
+                        id = 2,
+                        number = 2,
+                        title = "Pull Request Item",
+                        state = "open",
+                        htmlUrl = "https://github.com/owner/repo/pull/2",
+                        pullRequest = aikanban.github.model.GitHubPullRequestRefDto(htmlUrl = "https://github.com/owner/repo/pull/2"),
+                    ),
+                ),
+            )
+
+            val res1 = provider.sync(ProviderSyncRequest(repoOrUrl = "owner/repo", includePullRequests = false))
+            assertEquals(1, res1.createdCount)
+            assertEquals(1, service.listTasks().size)
+            assertEquals("Pure Issue", service.listTasks().first().title)
+
+            val res2 = provider.sync(ProviderSyncRequest(repoOrUrl = "owner/repo", includePullRequests = true))
+            assertEquals(1, res2.createdCount)
+            assertEquals(2, service.listTasks().size)
+        }
+
+    @Test
+    @DisplayName("Should not modify database in dry-run mode")
+    fun testDryRunMode() =
+        runBlocking {
+            fakeClient.issues.add(
+                GitHubIssueDto(
+                    id = 1,
+                    number = 1,
+                    title = "Dry Run Issue",
+                    state = "open",
+                    htmlUrl = "https://github.com/owner/repo/issues/1",
+                ),
+            )
+
+            val result = provider.sync(ProviderSyncRequest(repoOrUrl = "owner/repo", dryRun = true))
+
+            assertEquals(1, result.totalFetched)
+            assertEquals(1, result.createdCount)
+            assertEquals(0, service.listTasks().size)
+        }
+
+    @Test
+    @DisplayName("Should throw IllegalArgumentException when single issue is not found")
+    fun testSyncSingleIssueNotFound() {
+        assertFailsWith<IllegalArgumentException> {
+            runBlocking {
+                provider.sync(ProviderSyncRequest(repoOrUrl = "https://github.com/owner/repo/issues/404"))
+            }
+        }
+    }
+
+    @Test
     @DisplayName("Should extract correct issue URL from multi-line gh stdout")
     fun testCreateIssueWithMultilineOutput() =
         runBlocking {

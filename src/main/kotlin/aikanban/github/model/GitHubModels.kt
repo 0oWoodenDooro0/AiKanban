@@ -1,6 +1,5 @@
 package aikanban.github.model
 
-import aikanban.model.Task
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -50,16 +49,4 @@ data class GitHubPullRequestRefDto(
     val url: String? = null,
     @SerialName("html_url")
     val htmlUrl: String? = null,
-)
-
-@Serializable
-data class GitHubSyncResult(
-    val repo: String = "",
-    val totalFetched: Int = 0,
-    val createdCount: Int = 0,
-    val updatedCount: Int = 0,
-    val skippedCount: Int = 0,
-    val tasks: List<Task> = emptyList(),
-    val errors: List<String> = emptyList(),
-    val provider: String = "github",
 )

@@ -17,8 +17,6 @@ import aikanban.cli.prompt.TerminalInteractivePrompter
 import aikanban.cli.renderer.JsonRenderer
 import aikanban.config.AiKanbanConfig
 import aikanban.config.AiKanbanConfigLoader
-import aikanban.github.service.DefaultGitHubSyncService
-import aikanban.github.service.GitHubSyncService
 import aikanban.provider.DefaultGitCommandRunner
 import aikanban.provider.GitCommandRunner
 import aikanban.provider.ProviderFactory
@@ -45,7 +43,6 @@ import java.io.File
 
 class AiKanbanCommand(
     private val serviceOverride: KanbanService? = null,
-    private val gitHubSyncServiceOverride: GitHubSyncService? = null,
     private val configOverride: AiKanbanConfig? = null,
     private val gitCommandRunnerOverride: GitCommandRunner? = null,
     private val providerFactoryOverride: ProviderFactory? = null,
@@ -89,7 +86,6 @@ class AiKanbanCommand(
                 ?: ProviderFactory(
                     service,
                     gitCommandRunner = gitRunner,
-                    gitHubSyncService = gitHubSyncServiceOverride,
                     workingDir = workingDir,
                 )
         val workflowService =
@@ -100,7 +96,6 @@ class AiKanbanCommand(
                     config = config,
                     gitCommandRunner = gitRunner,
                 )
-        val syncService = gitHubSyncServiceOverride ?: DefaultGitHubSyncService(service)
 
         currentContext.findOrSetObject {
             CliContext(
@@ -111,7 +106,6 @@ class AiKanbanCommand(
                 prompter = prompter,
                 providerFactory = providerFactory,
                 workflowService = workflowService,
-                gitHubSyncService = syncService,
                 terminal = terminal,
                 jsonOutput = json,
             )

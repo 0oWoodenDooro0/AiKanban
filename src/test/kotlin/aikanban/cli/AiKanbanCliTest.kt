@@ -31,7 +31,7 @@ class AiKanbanCliTest {
     private lateinit var dbFile: File
     private lateinit var repository: SqliteTaskRepository
     private lateinit var service: KanbanService
-    private var gitHubSyncService: aikanban.github.service.GitHubSyncService? = null
+    private var providerFactory: aikanban.provider.ProviderFactory? = null
     private val json = Json { ignoreUnknownKeys = true }
 
     @BeforeEach
@@ -39,7 +39,7 @@ class AiKanbanCliTest {
         dbFile = tempDir.resolve("cli_test.db").toFile()
         repository = SqliteTaskRepository("jdbc:sqlite:${dbFile.absolutePath}")
         service = DefaultKanbanService(repository)
-        gitHubSyncService = null
+        providerFactory = null
     }
 
     @AfterEach
@@ -68,7 +68,7 @@ class AiKanbanCliTest {
             val command =
                 AiKanbanCommand(
                     serviceOverride = service,
-                    gitHubSyncServiceOverride = gitHubSyncService,
+                    providerFactoryOverride = providerFactory,
                     workingDirOverride = tempDir.toFile(),
                 )
             val exitCode = command.parseArgs(args.toList())
@@ -854,7 +854,7 @@ class AiKanbanCliTest {
                     labels = listOf(aikanban.github.model.GitHubLabelDto(name = "priority:high")),
                 ),
             )
-            gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
+            providerFactory = aikanban.provider.ProviderFactory(service, gitHubClient = client, workingDir = tempDir.toFile())
 
             val result = execute("sync", "myorg/myrepo", "--provider", "github")
             assertEquals(0, result.exitCode)
@@ -878,7 +878,7 @@ class AiKanbanCliTest {
                     htmlUrl = "https://github.com/myorg/myrepo/issues/102",
                 ),
             )
-            gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
+            providerFactory = aikanban.provider.ProviderFactory(service, gitHubClient = client, workingDir = tempDir.toFile())
 
             val result = execute("sync", "myorg/myrepo", "--provider", "github", "--json")
             assertEquals(0, result.exitCode)
@@ -901,7 +901,7 @@ class AiKanbanCliTest {
                     htmlUrl = "https://github.com/myorg/myrepo/issues/50",
                 ),
             )
-            gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, client)
+            providerFactory = aikanban.provider.ProviderFactory(service, gitHubClient = client, workingDir = tempDir.toFile())
 
             val result = execute("sync", "--url", "https://github.com/myorg/myrepo/issues/50", "--dry-run", "--json")
             assertEquals(0, result.exitCode)

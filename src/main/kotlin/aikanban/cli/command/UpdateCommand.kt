@@ -34,6 +34,7 @@ class UpdateCommand : CliktCommand(name = "update") {
     private val githubPrUrl by option("--pr", "--github-pr", help = "New GitHub PR URL")
     private val operator by option("-o", "--operator", help = "Operator making the update")
     private val comment by option("-c", "--comment", help = "Optional comment explaining the update")
+    private val noSync by option("--no-sync", help = "Skip synchronizing changes with remote issue tracker").flag(default = false)
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
@@ -61,6 +62,17 @@ class UpdateCommand : CliktCommand(name = "update") {
                 operator = effectiveOperator,
                 comment = comment,
             )
+
+        val hasRemoteLink = !updated.githubIssueUrl.isNullOrBlank() || !updated.githubRepo.isNullOrBlank()
+        if (!noSync && (title != null || description != null) && hasRemoteLink) {
+            try {
+                kotlinx.coroutines.runBlocking {
+                    cliContext.workflowService.syncTaskRemote(updated.id)
+                }
+            } catch (e: Exception) {
+                // If remote sync fails, log or ignore if offline
+            }
+        }
 
         if (isJson) {
             println(JsonRenderer.render(updated))

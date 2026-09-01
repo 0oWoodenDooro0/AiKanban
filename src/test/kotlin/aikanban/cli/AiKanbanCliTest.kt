@@ -692,6 +692,29 @@ class AiKanbanCliTest {
             val updated = json.decodeFromString<Task>(result.stdout)
             assertEquals("feature/cli-updated-branch", updated.branch)
         }
+
+        @Test
+        @DisplayName("Should support --no-sync flag in update command")
+        fun testUpdateTaskWithNoSyncFlag() {
+            val task =
+                service.createTask(
+                    title = "Remote Linked Task",
+                    status = "TODO",
+                    githubIssueUrl = "https://github.com/myorg/repo/issues/10",
+                )
+            val result =
+                execute(
+                    "update",
+                    task.id.toString(),
+                    "--title",
+                    "New Remote Title",
+                    "--no-sync",
+                    "--json",
+                )
+            assertEquals(0, result.exitCode)
+            val updated = json.decodeFromString<Task>(result.stdout)
+            assertEquals("New Remote Title", updated.title)
+        }
     }
 
     // ==========================================

@@ -435,4 +435,169 @@ class KanbanWorkflowServiceTest {
             assertEquals("REVIEW", updatedTask.status)
             assertEquals(result.pr.url, updatedTask.githubPrUrl)
         }
+
+    @Test
+    @DisplayName("Should auto-checkout base branch when submitPr is called with checkoutBase = true")
+    fun testSubmitPrAutoCheckoutsBaseBranch() =
+        runBlocking {
+            val task =
+                service.createTask(
+                    title = "Submit PR Auto Checkout Base",
+                    status = "IN_PROGRESS",
+                )
+            fakeGitRunner.currentBranch = "feature/checkout-base-test"
+
+            val request =
+                SubmitPrRequest(
+                    taskId = task.id,
+                    title = "feat: submit pr and checkout base",
+                    headBranch = "feature/checkout-base-test",
+                    baseBranch = "main",
+                    checkoutBase = true,
+                )
+
+            val result = workflowService.submitPr(request, workingDir = tempDir.toFile())
+
+            assertEquals("main", result.baseBranch)
+            assertEquals("main", fakeGitRunner.currentBranch)
+            val updatedTask = service.getTask(task.id)
+            assertEquals("REVIEW", updatedTask.status)
+        }
+
+    @Test
+    @DisplayName("Should not checkout base branch when submitPr is called with checkoutBase = false")
+    fun testSubmitPrNoCheckoutBase() =
+        runBlocking {
+            val task =
+                service.createTask(
+                    title = "Submit PR No Checkout Base",
+                    status = "IN_PROGRESS",
+                )
+            fakeGitRunner.currentBranch = "feature/no-checkout-test"
+
+            val request =
+                SubmitPrRequest(
+                    taskId = task.id,
+                    title = "feat: submit pr without checkout base",
+                    headBranch = "feature/no-checkout-test",
+                    baseBranch = "main",
+                    checkoutBase = false,
+                )
+
+            val result = workflowService.submitPr(request, workingDir = tempDir.toFile())
+
+            assertEquals(null, result.baseBranch)
+            assertEquals("feature/no-checkout-test", fakeGitRunner.currentBranch)
+            val updatedTask = service.getTask(task.id)
+            assertEquals("REVIEW", updatedTask.status)
+        }
+
+    @Test
+    @DisplayName("Should return baseBranch in submitPr dry-run when checkoutBase = true")
+    fun testSubmitPrDryRunReturnsBaseBranch() =
+        runBlocking {
+            val task = service.createTask(title = "Dry Run Base Branch Task", status = "IN_PROGRESS")
+            fakeGitRunner.currentBranch = "feature/dry-run-base"
+
+            val request =
+                SubmitPrRequest(
+                    taskId = task.id,
+                    headBranch = "feature/dry-run-base",
+                    baseBranch = "main",
+                    checkoutBase = true,
+                    dryRun = true,
+                )
+
+            val result = workflowService.submitPr(request)
+            assertEquals("main", result.baseBranch)
+            assertEquals("feature/dry-run-base", fakeGitRunner.currentBranch) // no checkout in dry-run
+        }
+
+    @Test
+    @DisplayName("Should auto-populate githubRepo from config.repo in startIssue")
+    fun testStartIssuePopulatesGitHubRepoFromConfig() =
+        runBlocking {
+            val workflowWithConfig =
+                DefaultKanbanWorkflowService(
+                    kanbanService = service,
+                    providerFactory = providerFactory,
+                    config = AiKanbanConfig(provider = "local-git", repo = "0oWoodenDooro0/AiKanban"),
+                    gitCommandRunner = fakeGitRunner,
+                )
+
+            val request =
+                StartIssueRequest(
+                    title = "Start Issue Config Repo",
+                )
+
+            val result = workflowWithConfig.startIssue(request)
+            assertEquals("0oWoodenDooro0/AiKanban", result.task.githubRepo)
+
+            val persisted = service.getTask(result.task.id)
+            assertEquals("0oWoodenDooro0/AiKanban", persisted.githubRepo)
+        }
+
+    @Test
+    @DisplayName("Should auto-populate githubRepo parsed from issue URL when config.repo is null in startIssue")
+    fun testStartIssuePopulatesGitHubRepoFromIssueUrl() =
+        runBlocking {
+            val localGit =
+                aikanban.provider.LocalGitProvider(
+                    gitCommandRunner = fakeGitRunner,
+                    workingDir = tempDir.toFile(),
+                )
+            val mockProvider =
+                object : aikanban.provider.IssueTrackerProvider by localGit {
+                    override suspend fun createIssue(request: aikanban.provider.CreateIssueRequest): aikanban.provider.IssueResult {
+                        return aikanban.provider.IssueResult(
+                            id = "42",
+                            url = "https://github.com/my-org/my-project/issues/42",
+                            title = request.title,
+                            body = request.body,
+                        )
+                    }
+                }
+
+            val workflowWithIssueUrl =
+                DefaultKanbanWorkflowService(
+                    kanbanService = service,
+                    providerFactory = providerFactory,
+                    config = AiKanbanConfig(provider = "local-git", repo = null),
+                    gitCommandRunner = fakeGitRunner,
+                    providerOverride = mockProvider,
+                )
+
+            val request =
+                StartIssueRequest(
+                    title = "Start Issue Parsed Repo",
+                )
+
+            val result = workflowWithIssueUrl.startIssue(request)
+            assertEquals("my-org/my-project", result.task.githubRepo)
+
+            val persisted = service.getTask(result.task.id)
+            assertEquals("my-org/my-project", persisted.githubRepo)
+        }
+
+    @Test
+    @DisplayName("Should auto-checkout feature branch when startReview is called")
+    fun testStartReviewAutoCheckoutsFeatureBranch() =
+        runBlocking {
+            val task =
+                service.createTask(
+                    title = "Review Auto Checkout Task",
+                    status = "REVIEW",
+                    branch = "feature/review-branch-checkout",
+                )
+            fakeGitRunner.currentBranch = "main"
+
+            val result =
+                workflowService.startReview(
+                    StartReviewRequest(taskId = task.id, checkoutBranch = true),
+                    workingDir = tempDir.toFile(),
+                )
+
+            assertEquals("feature/review-branch-checkout", result.branchName)
+            assertEquals("feature/review-branch-checkout", fakeGitRunner.currentBranch)
+        }
 }

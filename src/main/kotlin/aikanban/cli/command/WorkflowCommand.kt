@@ -134,6 +134,14 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
     private val head by option("--head", help = "Head branch to submit (defaults to current Git branch)")
     private val base by option("--base", help = "Base branch to merge into (defaults to config defaultBaseBranch or 'main')")
     private val draft by option("--draft", help = "Open Pull Request as a draft").flag(default = false)
+    private val checkoutBase by option(
+        "--checkout-base",
+        help = "Checkout target base branch after PR submission",
+    ).flag(default = false)
+    private val noCheckoutBase by option(
+        "--no-checkout-base",
+        help = "Skip checking out target base branch after PR submission",
+    ).flag(default = false)
     private val operator by option("-o", "--operator", help = "Operator identifier")
     private val provider by option("--provider", help = "VCS provider override (local-git, github)")
     private val dryRun by option("--dry-run", help = "Preview PR submission without modifying database or git").flag(default = false)
@@ -152,6 +160,14 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
             } ?: body
 
         val targetBase = base ?: activeConfig.defaultBaseBranch
+        val effectiveCheckoutBase =
+            if (checkoutBase) {
+                true
+            } else if (noCheckoutBase) {
+                false
+            } else {
+                activeConfig.workflow.checkoutBaseOnSubmitPr
+            }
 
         val request =
             SubmitPrRequest(
@@ -161,12 +177,13 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
                 headBranch = head,
                 baseBranch = targetBase,
                 draft = draft,
+                checkoutBase = effectiveCheckoutBase,
                 operator = effectiveOperator,
                 providerName = provider ?: activeConfig.provider,
                 dryRun = dryRun,
             )
 
-        val result = runBlocking { cliContext.workflowService.submitPr(request) }
+        val result = runBlocking { cliContext.workflowService.submitPr(request, workingDir = cliContext.workingDir) }
 
         if (isJson) {
             println(JsonRenderer.render(result))
@@ -176,6 +193,9 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
             t.println(bold(green("$prefix✓ Submitted PR for Task #${result.task.id}: ${result.pr.url}")))
             t.println(cyan("  • Status: ${result.task.status}"))
             t.println(blue("  • Branch: ${result.pr.headBranch} -> ${result.pr.baseBranch}"))
+            if (result.baseBranch != null) {
+                t.println(blue("  • Checked out base branch: ${result.baseBranch}"))
+            }
         }
     }
 }

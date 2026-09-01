@@ -109,13 +109,20 @@ class SyncAndWorkflowCliTest {
         System.setErr(printErr)
 
         try {
+            val dynamicWorkflowService =
+                DefaultKanbanWorkflowService(
+                    kanbanService = service,
+                    providerFactory = providerFactory,
+                    config = config,
+                    gitCommandRunner = fakeGitRunner,
+                )
             val command =
                 AiKanbanCommand(
                     serviceOverride = service,
                     configOverride = config,
                     gitCommandRunnerOverride = fakeGitRunner,
                     providerFactoryOverride = providerFactory,
-                    workflowServiceOverride = workflowService,
+                    workflowServiceOverride = dynamicWorkflowService,
                 )
             val exitCode = command.parseArgs(args.toList())
             return CliExecutionResult(
@@ -381,6 +388,44 @@ class SyncAndWorkflowCliTest {
             assertEquals(0, result.exitCode)
             val startRes = json.decodeFromString<aikanban.workflow.StartReviewResult>(result.stdout)
             assertEquals(task.id, startRes.task.id)
+        }
+
+        @Test
+        @DisplayName("workflow submit-pr should auto-checkout base branch and report baseBranch in JSON")
+        fun testWorkflowSubmitPrCliAutoCheckoutBase() {
+            val task = service.createTask(title = "CLI Submit PR Auto Checkout Base", status = "IN_PROGRESS")
+            fakeGitRunner.currentBranch = "feature/cli-pr-base"
+
+            val result = execute("workflow", "submit-pr", task.id.toString(), "--json")
+            assertEquals(0, result.exitCode)
+            val submitRes = json.decodeFromString<SubmitPrResult>(result.stdout)
+            assertEquals("REVIEW", submitRes.task.status)
+            assertEquals("main", submitRes.baseBranch)
+            assertEquals("main", fakeGitRunner.currentBranch)
+        }
+
+        @Test
+        @DisplayName("workflow submit-pr --no-checkout-base should not switch branch")
+        fun testWorkflowSubmitPrCliNoCheckoutBase() {
+            val task = service.createTask(title = "CLI Submit PR No Checkout Base", status = "IN_PROGRESS")
+            fakeGitRunner.currentBranch = "feature/cli-pr-stay"
+
+            val result = execute("workflow", "submit-pr", task.id.toString(), "--no-checkout-base", "--json")
+            assertEquals(0, result.exitCode)
+            val submitRes = json.decodeFromString<SubmitPrResult>(result.stdout)
+            assertEquals("REVIEW", submitRes.task.status)
+            assertEquals(null, submitRes.baseBranch)
+            assertEquals("feature/cli-pr-stay", fakeGitRunner.currentBranch)
+        }
+
+        @Test
+        @DisplayName("workflow start-issue CLI should populate githubRepo from config")
+        fun testWorkflowStartIssueCliPopulatesGitHubRepo() {
+            config = AiKanbanConfig(provider = "local-git", repo = "cli-org/cli-repo")
+            val result = execute("workflow", "start-issue", "CLI Start Issue Repo", "--json")
+            assertEquals(0, result.exitCode)
+            val startRes = json.decodeFromString<StartIssueResult>(result.stdout)
+            assertEquals("cli-org/cli-repo", startRes.task.githubRepo)
         }
     }
 }

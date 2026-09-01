@@ -20,6 +20,7 @@ data class WorkflowOptionsConfig(
     val reviewColumn: String = "REVIEW",
     val requireVerification: Boolean = false,
     val checkoutBaseOnComplete: Boolean = true,
+    val checkoutBaseOnSubmitPr: Boolean = true,
 )
 
 @Serializable
@@ -160,6 +161,7 @@ object AiKanbanConfigLoader {
                     },
                 requireVerification = project.workflow.requireVerification || global.workflow.requireVerification,
                 checkoutBaseOnComplete = project.workflow.checkoutBaseOnComplete,
+                checkoutBaseOnSubmitPr = project.workflow.checkoutBaseOnSubmitPr,
             )
         return AiKanbanConfig(
             provider = project.provider,

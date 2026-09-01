@@ -228,7 +228,7 @@ class ConfigInitCommand : CliktCommand(name = "init") {
                     }
                     updated
                 } else {
-                    AiKanbanConfigLoader.ensureProviderConfig(
+                    aikanban.cli.setup.CliSetupWizard.ensureProviderConfig(
                         workingDir = workingDir,
                         prompter = cliContext.prompter,
                         gitCommandRunner = cliContext.gitCommandRunner,

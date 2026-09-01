@@ -1,8 +1,12 @@
-package aikanban.config
+package aikanban.cli.setup
 
+import aikanban.cli.CliContext
 import aikanban.cli.prompt.TestInteractivePrompter
+import aikanban.config.AiKanbanConfigLoader
 import aikanban.provider.GitCommandRunner
 import aikanban.provider.GitProcessResult
+import aikanban.repository.SqliteTaskRepository
+import aikanban.service.DefaultKanbanService
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -13,7 +17,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class ConfigPromptTest {
+class CliSetupWizardTest {
     @TempDir
     lateinit var tempDir: Path
 
@@ -46,6 +50,34 @@ class ConfigPromptTest {
     }
 
     @Test
+    @DisplayName("Should correctly probe git config for HTTPS, SSH, and local-git repositories")
+    fun testProbeGitConfig() {
+        val gitRunnerSsh =
+            MockGitRunner(
+                remoteUrls = mutableMapOf("origin" to "git@github.com:myorg/my-project.git"),
+            )
+        val probedSsh = CliSetupWizard.probeGitConfig(tempDir.toFile(), gitRunnerSsh)
+        assertEquals("myorg/my-project", probedSsh.detectedRepo)
+        assertEquals("github", probedSsh.suggestedProvider)
+        assertEquals("git@github.com:myorg/my-project.git", probedSsh.remoteUrl)
+        assertTrue(probedSsh.isGitRepository)
+
+        val gitRunnerHttps =
+            MockGitRunner(
+                remoteUrls = mutableMapOf("origin" to "https://github.com/myorg/https-project"),
+            )
+        val probedHttps = CliSetupWizard.probeGitConfig(tempDir.toFile(), gitRunnerHttps)
+        assertEquals("myorg/https-project", probedHttps.detectedRepo)
+        assertEquals("github", probedHttps.suggestedProvider)
+
+        val gitRunnerLocal = MockGitRunner(isRepo = false)
+        val probedLocal = CliSetupWizard.probeGitConfig(tempDir.toFile(), gitRunnerLocal)
+        assertNull(probedLocal.detectedRepo)
+        assertEquals("local-git", probedLocal.suggestedProvider)
+        assertFalse(probedLocal.isGitRepository)
+    }
+
+    @Test
     @DisplayName("Should return existing config directly without prompting if config file exists")
     fun testEnsureProviderConfigWhenConfigFileExists() {
         val workingDir = tempDir.toFile()
@@ -64,7 +96,7 @@ class ConfigPromptTest {
         val gitRunner = MockGitRunner()
 
         val config =
-            aikanban.cli.setup.CliSetupWizard.ensureProviderConfig(
+            CliSetupWizard.ensureProviderConfig(
                 workingDir = workingDir,
                 prompter = prompter,
                 gitCommandRunner = gitRunner,
@@ -84,7 +116,7 @@ class ConfigPromptTest {
         val gitRunner = MockGitRunner()
 
         val config =
-            aikanban.cli.setup.CliSetupWizard.ensureProviderConfig(
+            CliSetupWizard.ensureProviderConfig(
                 workingDir = workingDir,
                 prompter = prompter,
                 gitCommandRunner = gitRunner,
@@ -97,7 +129,7 @@ class ConfigPromptTest {
     }
 
     @Test
-    @DisplayName("Should prompt and save GitHub configuration when user selects GitHub")
+    @DisplayName("Should prompt and save GitHub configuration when user selects GitHub interactively")
     fun testEnsureProviderConfigInteractiveGitHub() {
         val workingDir = tempDir.toFile()
         val gitRunner =
@@ -119,7 +151,7 @@ class ConfigPromptTest {
             )
 
         val config =
-            aikanban.cli.setup.CliSetupWizard.ensureProviderConfig(
+            CliSetupWizard.ensureProviderConfig(
                 workingDir = workingDir,
                 prompter = prompter,
                 gitCommandRunner = gitRunner,
@@ -155,7 +187,7 @@ class ConfigPromptTest {
             )
 
         val config =
-            aikanban.cli.setup.CliSetupWizard.ensureProviderConfig(
+            CliSetupWizard.ensureProviderConfig(
                 workingDir = workingDir,
                 prompter = prompter,
                 gitCommandRunner = gitRunner,
@@ -186,7 +218,7 @@ class ConfigPromptTest {
             )
 
         val config =
-            aikanban.cli.setup.CliSetupWizard.ensureProviderConfig(
+            CliSetupWizard.ensureProviderConfig(
                 workingDir = workingDir,
                 prompter = prompter,
                 gitCommandRunner = gitRunner,
@@ -197,27 +229,76 @@ class ConfigPromptTest {
     }
 
     @Test
-    @DisplayName("Should correctly probe git config for HTTPS and SSH GitHub remotes")
-    fun testProbeGitConfig() {
-        val gitRunnerSsh =
-            MockGitRunner(
-                remoteUrls = mutableMapOf("origin" to "git@github.com:myorg/my-project.git"),
+    @DisplayName("Should bypass wizard in ensureConfig helper when provider is explicitly overridden")
+    fun testEnsureConfigBypassOnOverrideProvider() {
+        val workingDir = tempDir.toFile()
+        val prompter = TestInteractivePrompter(interactive = true)
+        val context =
+            CliContext(
+                service = DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:${File(workingDir, "test.db").absolutePath}")),
+                workingDir = workingDir,
+                prompter = prompter,
             )
-        val probedSsh = aikanban.cli.setup.CliSetupWizard.probeGitConfig(tempDir.toFile(), gitRunnerSsh)
-        assertEquals("myorg/my-project", probedSsh.detectedRepo)
-        assertEquals("github", probedSsh.suggestedProvider)
 
-        val gitRunnerHttps =
-            MockGitRunner(
-                remoteUrls = mutableMapOf("origin" to "https://github.com/myorg/https-project"),
+        val result = context.ensureConfig(overrideProvider = "local-git")
+        assertEquals(context.config, result)
+        assertTrue(prompter.recordedChoices.isEmpty())
+    }
+
+    @Test
+    @DisplayName("Should bypass wizard in ensureConfig helper when output is JSON mode")
+    fun testEnsureConfigBypassOnJsonMode() {
+        val workingDir = tempDir.toFile()
+        val prompter = TestInteractivePrompter(interactive = true)
+        val context =
+            CliContext(
+                service = DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:${File(workingDir, "test.db").absolutePath}")),
+                workingDir = workingDir,
+                prompter = prompter,
             )
-        val probedHttps = aikanban.cli.setup.CliSetupWizard.probeGitConfig(tempDir.toFile(), gitRunnerHttps)
-        assertEquals("myorg/https-project", probedHttps.detectedRepo)
-        assertEquals("github", probedHttps.suggestedProvider)
 
-        val gitRunnerLocal = MockGitRunner(isRepo = false)
-        val probedLocal = aikanban.cli.setup.CliSetupWizard.probeGitConfig(tempDir.toFile(), gitRunnerLocal)
-        assertNull(probedLocal.detectedRepo)
-        assertEquals("local-git", probedLocal.suggestedProvider)
+        val result = context.ensureConfig(isJson = true)
+        assertEquals(context.config, result)
+        assertTrue(prompter.recordedChoices.isEmpty())
+    }
+
+    @Test
+    @DisplayName("Should bypass wizard in ensureConfig helper when explicit target is specified")
+    fun testEnsureConfigBypassOnExplicitTarget() {
+        val workingDir = tempDir.toFile()
+        val prompter = TestInteractivePrompter(interactive = true)
+        val context =
+            CliContext(
+                service = DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:${File(workingDir, "test.db").absolutePath}")),
+                workingDir = workingDir,
+                prompter = prompter,
+            )
+
+        val result = context.ensureConfig(bypassIfTargetSpecified = true)
+        assertEquals(context.config, result)
+        assertTrue(prompter.recordedChoices.isEmpty())
+    }
+
+    @Test
+    @DisplayName("Should trigger wizard in ensureConfig helper when no config file exists and no bypass conditions met")
+    fun testEnsureConfigTriggersWizard() {
+        val workingDir = tempDir.toFile()
+        val prompter =
+            TestInteractivePrompter(
+                interactive = true,
+                choiceResponses = mutableListOf("local-git"),
+                promptResponses = mutableListOf("main", "feature/"),
+                confirmResponses = mutableListOf(true),
+            )
+        val context =
+            CliContext(
+                service = DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:${File(workingDir, "test.db").absolutePath}")),
+                workingDir = workingDir,
+                prompter = prompter,
+            )
+
+        val result = context.ensureConfig()
+        assertEquals("local-git", result.provider)
+        assertTrue(File(workingDir, ".aikanban.json").exists())
     }
 }

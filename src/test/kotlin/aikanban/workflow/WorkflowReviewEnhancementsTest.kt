@@ -53,12 +53,33 @@ class WorkflowReviewEnhancementsTest {
     class TestGitCommandRunner : GitCommandRunner {
         var currentBranch: String = "main"
         var isRepo: Boolean = true
+        var isClean: Boolean = true
         val checkedOutBranches = mutableListOf<String>()
         val createdBranches = mutableListOf<Pair<String, String>>()
         val pushedBranches = mutableListOf<Pair<String, String>>()
         val deletedBranches = mutableListOf<Pair<String, Boolean>>() // branch to isRemote
         val mergedBranches = mutableListOf<Pair<String, Boolean>>() // branch to isSquash
         val pulledBranches = mutableListOf<String>()
+        val stashPushed = mutableListOf<Pair<String?, Boolean>>() // message to includeUntracked
+        var stashPushResult: GitProcessResult = GitProcessResult(0, "Saved working directory and index state", "")
+        var stashPopResult: GitProcessResult = GitProcessResult(0, "Dropped refs/stash@{0}", "")
+        var stashPopCalled: Boolean = false
+
+        override fun isWorkingTreeClean(workingDir: File?): Boolean = isClean
+
+        override fun stashPush(
+            message: String?,
+            includeUntracked: Boolean,
+            workingDir: File?,
+        ): GitProcessResult {
+            stashPushed.add(message to includeUntracked)
+            return stashPushResult
+        }
+
+        override fun stashPop(workingDir: File?): GitProcessResult {
+            stashPopCalled = true
+            return stashPopResult
+        }
 
         override fun getCurrentBranch(workingDir: File?): String = currentBranch
 
@@ -780,5 +801,171 @@ class WorkflowReviewEnhancementsTest {
                 assertEquals("REQUEST", result.task.status)
                 assertEquals(0, fakeProvider.requestedChangesPrs.size)
             }
+    }
+
+    @Nested
+    @DisplayName("Start Review Working Tree Guard & Stash Tests")
+    inner class StartReviewWorkingTreeGuardTests {
+        @Test
+        @DisplayName("startReview on clean working tree proceeds normally without stashing")
+        fun testStartReviewOnCleanWorkingTreeProceedsNormally() =
+            runBlocking {
+                fakeGitRunner.isClean = true
+                val task = service.createTask(title = "Clean review task", status = "REVIEW", branch = "feature/clean-review")
+
+                val result = workflowService.startReview(StartReviewRequest(taskId = task.id), tempDir.toFile())
+
+                assertEquals(task.id, result.task.id)
+                assertEquals("feature/clean-review", result.branchName)
+                assertFalse(result.stashed)
+                assertTrue(fakeGitRunner.stashPushed.isEmpty())
+                assertTrue(fakeGitRunner.checkedOutBranches.contains("feature/clean-review"))
+            }
+
+        @Test
+        @DisplayName("startReview on dirty working tree without --stash or --force throws IllegalStateException and blocks checkout")
+        fun testStartReviewOnDirtyWorkingTreeWithoutFlagsThrowsException() =
+            runBlocking {
+                fakeGitRunner.isClean = false
+                val task = service.createTask(title = "Dirty review task", status = "REVIEW", branch = "feature/dirty-review")
+
+                val ex =
+                    assertFailsWith<IllegalStateException> {
+                        workflowService.startReview(StartReviewRequest(taskId = task.id), tempDir.toFile())
+                    }
+
+                val hasExpectedMessage =
+                    ex.message!!.contains("working directory has uncommitted changes") ||
+                        ex.message!!.contains("uncommitted changes")
+                assertTrue(hasExpectedMessage)
+                assertTrue(ex.message!!.contains("--stash"))
+                assertTrue(ex.message!!.contains("--force"))
+                assertFalse(fakeGitRunner.checkedOutBranches.contains("feature/dirty-review"))
+                assertTrue(fakeGitRunner.stashPushed.isEmpty())
+            }
+
+        @Test
+        @DisplayName("startReview on dirty working tree with stash=true automatically stashes changes, logs comment, and checks out branch")
+        fun testStartReviewOnDirtyWorkingTreeWithStashSucceedsAndFlagsStashed() =
+            runBlocking {
+                fakeGitRunner.isClean = false
+                val task = service.createTask(title = "Stash review task", status = "REVIEW", branch = "feature/stash-review")
+
+                val result =
+                    workflowService.startReview(
+                        StartReviewRequest(taskId = task.id, stash = true),
+                        tempDir.toFile(),
+                    )
+
+                assertEquals(task.id, result.task.id)
+                assertEquals("feature/stash-review", result.branchName)
+                assertTrue(result.stashed)
+                assertEquals(1, fakeGitRunner.stashPushed.size)
+                assertTrue(fakeGitRunner.stashPushed.first().first!!.contains("aikanban auto-stash"))
+                assertTrue(fakeGitRunner.checkedOutBranches.contains("feature/stash-review"))
+
+                val taskInDb = service.getTask(task.id)
+                val lastLog = taskInDb.logs.last()
+                assertTrue(lastLog.comment.contains("uncommitted changes stashed"))
+            }
+
+        @Test
+        @DisplayName("startReview on dirty working tree with force=true skips stash and checks out branch directly")
+        fun testStartReviewOnDirtyWorkingTreeWithForceProceedsWithoutStash() =
+            runBlocking {
+                fakeGitRunner.isClean = false
+                val task = service.createTask(title = "Force review task", status = "REVIEW", branch = "feature/force-review")
+
+                val result =
+                    workflowService.startReview(
+                        StartReviewRequest(taskId = task.id, force = true),
+                        tempDir.toFile(),
+                    )
+
+                assertEquals(task.id, result.task.id)
+                assertEquals("feature/force-review", result.branchName)
+                assertFalse(result.stashed)
+                assertTrue(fakeGitRunner.stashPushed.isEmpty())
+                assertTrue(fakeGitRunner.checkedOutBranches.contains("feature/force-review"))
+            }
+
+        @Test
+        @DisplayName("startReview with checkoutBranch=false skips dirty working tree check and stash")
+        fun testStartReviewWithNoCheckoutSkipsWorkingTreeCheck() =
+            runBlocking {
+                fakeGitRunner.isClean = false
+                val task = service.createTask(title = "No checkout review task", status = "REVIEW", branch = "feature/no-checkout-review")
+
+                val result =
+                    workflowService.startReview(
+                        StartReviewRequest(taskId = task.id, checkoutBranch = false),
+                        tempDir.toFile(),
+                    )
+
+                assertEquals(task.id, result.task.id)
+                assertFalse(result.stashed)
+                assertTrue(fakeGitRunner.stashPushed.isEmpty())
+                assertFalse(fakeGitRunner.checkedOutBranches.contains("feature/no-checkout-review"))
+            }
+
+        @Test
+        @DisplayName("startReview when stash push fails throws IllegalStateException and aborts checkout")
+        fun testStartReviewStashFailureThrowsException() =
+            runBlocking {
+                fakeGitRunner.isClean = false
+                fakeGitRunner.stashPushResult = GitProcessResult(1, "", "fatal: could not create stash")
+                val task = service.createTask(title = "Failed stash task", status = "REVIEW", branch = "feature/failed-stash-review")
+
+                val ex =
+                    assertFailsWith<IllegalStateException> {
+                        workflowService.startReview(
+                            StartReviewRequest(taskId = task.id, stash = true),
+                            tempDir.toFile(),
+                        )
+                    }
+
+                assertTrue(ex.message!!.contains("Failed to stash uncommitted changes"))
+                assertFalse(fakeGitRunner.checkedOutBranches.contains("feature/failed-stash-review"))
+            }
+
+        @Test
+        @DisplayName("DefaultGitCommandRunner tests isWorkingTreeClean, stashPush, and stashPop in real Git repository")
+        fun testDefaultGitCommandRunnerWorkingTreeAndStashInRealGitRepo() {
+            val repoDir = tempDir.resolve("real_git_repo").toFile()
+            repoDir.mkdirs()
+
+            // Initialize real git repo
+            ProcessBuilder("git", "init").directory(repoDir).start().waitFor()
+            ProcessBuilder("git", "config", "user.name", "TestUser").directory(repoDir).start().waitFor()
+            ProcessBuilder("git", "config", "user.email", "test@example.com").directory(repoDir).start().waitFor()
+
+            val runner = aikanban.provider.DefaultGitCommandRunner(repoDir)
+
+            // Initial commit
+            val initialFile = File(repoDir, "initial.txt")
+            initialFile.writeText("initial content")
+            ProcessBuilder("git", "add", ".").directory(repoDir).start().waitFor()
+            ProcessBuilder("git", "commit", "-m", "Initial commit").directory(repoDir).start().waitFor()
+
+            // 1. Initial state: clean
+            assertTrue(runner.isWorkingTreeClean(repoDir), "Working tree should be clean initially")
+
+            // 2. Add untracked file -> dirty
+            val dirtyFile = File(repoDir, "dirty.txt")
+            dirtyFile.writeText("uncommitted content")
+            assertFalse(runner.isWorkingTreeClean(repoDir), "Working tree should be dirty after adding untracked file")
+
+            // 3. Stash untracked file -> clean again
+            val stashRes = runner.stashPush(message = "test auto stash", includeUntracked = true, workingDir = repoDir)
+            assertEquals(0, stashRes.exitCode)
+            assertTrue(runner.isWorkingTreeClean(repoDir), "Working tree should be clean after stashPush")
+            assertFalse(dirtyFile.exists(), "Untracked file should be stashed away")
+
+            // 4. Pop stash -> dirty again
+            val popRes = runner.stashPop(repoDir)
+            assertEquals(0, popRes.exitCode)
+            assertFalse(runner.isWorkingTreeClean(repoDir), "Working tree should be dirty after stashPop")
+            assertTrue(dirtyFile.exists(), "Untracked file should be restored after stashPop")
+        }
     }
 }

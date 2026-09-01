@@ -70,6 +70,8 @@ data class StartReviewRequest(
     val taskId: Int? = null,
     val operator: String = "workflow",
     val checkoutBranch: Boolean = true,
+    val stash: Boolean = false,
+    val force: Boolean = false,
 )
 
 @Serializable
@@ -78,6 +80,7 @@ data class StartReviewResult(
     val branchName: String?,
     val prUrl: String?,
     val executedHooks: List<CommandExecutionResult> = emptyList(),
+    val stashed: Boolean = false,
 )
 
 @Serializable
@@ -593,14 +596,43 @@ class DefaultKanbanWorkflowService(
         }
 
         val branchName = resolveTaskBranch(targetTask, dir, fallbackToGenerated = true)
+        var stashed = false
         if (request.checkoutBranch && branchName != null && gitCommandRunner.isGitRepository(dir)) {
-            gitCommandRunner.checkoutBranch(branchName, createIfMissing = false, workingDir = dir)
+            val isClean = gitCommandRunner.isWorkingTreeClean(dir)
+            if (!isClean) {
+                if (request.stash) {
+                    val stashRes =
+                        gitCommandRunner.stashPush(
+                            message = "aikanban auto-stash before review task #${targetTask.id}",
+                            includeUntracked = true,
+                            workingDir = dir,
+                        )
+                    if (stashRes.exitCode != 0) {
+                        throw IllegalStateException(
+                            "Failed to stash uncommitted changes before checkout: ${stashRes.stderr.ifBlank { stashRes.stdout }}",
+                        )
+                    }
+                    stashed = true
+                } else if (!request.force) {
+                    throw IllegalStateException(
+                        "Cannot checkout review branch '$branchName': working directory has uncommitted changes. " +
+                            "Please commit or stash your changes, or run with --stash to automatically stash changes, " +
+                            "or --force to proceed anyway.",
+                    )
+                }
+            }
+
+            val checkoutRes = gitCommandRunner.checkoutBranch(branchName, createIfMissing = false, workingDir = dir)
+            if (checkoutRes.exitCode != 0) {
+                throw IllegalStateException("Failed to checkout branch '$branchName': ${checkoutRes.stderr.ifBlank { checkoutRes.stdout }}")
+            }
         }
 
+        val stashNotice = if (stashed) " (uncommitted changes stashed)" else ""
         kanbanService.addComment(
             taskId = targetTask.id,
             operator = request.operator,
-            comment = "Started code review${branchName?.let { " on branch $it" } ?: ""}",
+            comment = "Started code review${branchName?.let { " on branch $it" } ?: ""}$stashNotice",
         )
 
         val postHooks = config.hooks["post-start-review"] ?: emptyList()
@@ -615,6 +647,7 @@ class DefaultKanbanWorkflowService(
             branchName = branchName,
             prUrl = targetTask.githubPrUrl,
             executedHooks = executedHooks,
+            stashed = stashed,
         )
     }
 

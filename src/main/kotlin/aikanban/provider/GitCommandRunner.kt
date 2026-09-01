@@ -75,6 +75,16 @@ interface GitCommandRunner {
         workingDir: File? = null,
     ): GitProcessResult = GitProcessResult(0, "", "")
 
+    fun isWorkingTreeClean(workingDir: File? = null): Boolean = true
+
+    fun stashPush(
+        message: String? = null,
+        includeUntracked: Boolean = true,
+        workingDir: File? = null,
+    ): GitProcessResult = GitProcessResult(0, "", "")
+
+    fun stashPop(workingDir: File? = null): GitProcessResult = GitProcessResult(0, "", "")
+
     fun getHeadCommitHash(workingDir: File? = null): String? = null
 
     fun getUserName(workingDir: File? = null): String? = null
@@ -229,6 +239,31 @@ class DefaultGitCommandRunner(
         workingDir: File?,
     ): GitProcessResult {
         return runProcess(listOf("git", "commit", "-m", message), workingDir)
+    }
+
+    override fun isWorkingTreeClean(workingDir: File?): Boolean {
+        val res = runProcess(listOf("git", "status", "--porcelain"), workingDir)
+        return res.exitCode == 0 && res.stdout.isBlank()
+    }
+
+    override fun stashPush(
+        message: String?,
+        includeUntracked: Boolean,
+        workingDir: File?,
+    ): GitProcessResult {
+        val args = mutableListOf("git", "stash", "push")
+        if (includeUntracked) {
+            args.add("-u")
+        }
+        if (!message.isNullOrBlank()) {
+            args.add("-m")
+            args.add(message)
+        }
+        return runProcess(args, workingDir)
+    }
+
+    override fun stashPop(workingDir: File?): GitProcessResult {
+        return runProcess(listOf("git", "stash", "pop"), workingDir)
     }
 
     override fun getHeadCommitHash(workingDir: File?): String? {

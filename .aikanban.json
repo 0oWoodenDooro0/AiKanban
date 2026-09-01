@@ -14,11 +14,14 @@
     ],
     "pre-submit-pr": [
       "./gradlew test ktlintCheck"
+    ],
+    "pre-complete-review": [
+      "./gradlew test ktlintCheck"
     ]
   },
   "workflows": {
     "build": {
-      "description": "Build standalone CLI binary",
+      "description": "Build standalone executable CLI binary",
       "steps": [
         "./gradlew buildExecutable"
       ]
@@ -31,11 +34,31 @@
       ]
     },
     "install": {
-      "description": "Build and install aikanban to ~/.local/bin",
+      "description": "Build and install aikanban binary to ~/.local/bin",
       "steps": [
         "./gradlew installCli"
       ]
+    },
+    "format": {
+      "description": "Format Kotlin source code using ktlint",
+      "steps": [
+        "./gradlew ktlintFormat"
+      ]
+    },
+    "check": {
+      "description": "Run unit test suite and ktlint verification",
+      "steps": [
+        "./gradlew test ktlintCheck"
+      ]
     }
+  },
+  "workflow": {
+    "mergeMethod": "squash",
+    "deleteBranchOnMerge": true,
+    "requireVerification": false,
+    "checkoutBaseOnComplete": true,
+    "requestColumn": "REQUEST",
+    "doneColumn": "DONE",
+    "reviewColumn": "REVIEW"
   }
 }
-

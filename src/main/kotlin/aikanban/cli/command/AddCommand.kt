@@ -30,12 +30,13 @@ class AddCommand : CliktCommand(name = "add") {
     private val status by option("-s", "--status", help = "Initial board column status").default("TODO")
     private val githubRepo by option("--repo", "--github-repo", help = "Associated GitHub repository (e.g. owner/repo)")
     private val githubIssueUrl by option("--issue", "--github-issue", help = "Associated GitHub Issue URL")
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("cli")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
         val parsedTags = tags.flatMap { it.split(",") }.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val effectiveOperator = cliContext.resolveOperator(operator)
 
         val task =
             cliContext.service.createTask(
@@ -48,7 +49,7 @@ class AddCommand : CliktCommand(name = "add") {
                 githubRepo = githubRepo,
                 githubIssueUrl = githubIssueUrl,
                 status = status,
-                operator = operator,
+                operator = effectiveOperator,
             )
 
         if (isJson) {

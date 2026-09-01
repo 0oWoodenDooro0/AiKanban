@@ -78,6 +78,10 @@ class LocalGitProviderTest {
             remote: String,
             workingDir: File?,
         ): String? = null
+
+        var userName: String? = null
+
+        override fun getUserName(workingDir: File?): String? = userName
     }
 
     @BeforeEach

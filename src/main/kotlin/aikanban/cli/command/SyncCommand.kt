@@ -35,12 +35,13 @@ class SyncCommand : CliktCommand(name = "sync") {
     private val token by option("--token", help = "Personal access token", envvar = "GITHUB_TOKEN")
     private val provider by option("--provider", help = "VCS provider override (local-git, github)")
     private val dryRun by option("--dry-run", help = "Preview synchronization without modifying database").flag(default = false)
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("cli-sync")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
         val parsedTags = tags.flatMap { it.split(",") }.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val effectiveOperator = cliContext.resolveOperator(operator)
 
         val targetUrl = url?.trim()
         val targetRepo = repo?.trim()
@@ -74,7 +75,7 @@ class SyncCommand : CliktCommand(name = "sync") {
                         includePullRequests = includePrs,
                         targetStatus = targetStatus,
                         token = token,
-                        operator = operator,
+                        operator = effectiveOperator,
                         dryRun = dryRun,
                     ),
                 )

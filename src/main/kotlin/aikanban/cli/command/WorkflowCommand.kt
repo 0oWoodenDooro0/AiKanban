@@ -68,7 +68,7 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
     private val base by option("--base", help = "Base branch for new branch (defaults to config defaultBaseBranch or 'main')")
     private val plan by option("--plan", help = "Implementation plan markdown text or file path")
     private val assignee by option("-a", "--assignee", help = "Assigned user or agent name")
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val provider by option("--provider", help = "VCS provider override (local-git, github)")
     private val dryRun by option("--dry-run", help = "Preview workflow actions without modifying database or git").flag(default = false)
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
@@ -76,6 +76,7 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
     override fun run() {
         val isJson = json || cliContext.jsonOutput
         val parsedTags = tags.flatMap { it.split(",") }.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        val effectiveOperator = cliContext.resolveOperator(operator)
 
         val activeConfig =
             if (provider == null && !isJson && !AiKanbanConfigLoader.hasConfigFile(cliContext.workingDir)) {
@@ -106,7 +107,7 @@ class WorkflowStartIssueCommand : CliktCommand(name = "start-issue") {
                 baseBranch = targetBase,
                 plan = planText,
                 assignee = assignee,
-                operator = operator,
+                operator = effectiveOperator,
                 providerName = provider ?: activeConfig.provider,
                 dryRun = dryRun,
             )
@@ -143,13 +144,14 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
     private val head by option("--head", help = "Head branch to submit (defaults to current Git branch)")
     private val base by option("--base", help = "Base branch to merge into (defaults to config defaultBaseBranch or 'main')")
     private val draft by option("--draft", help = "Open Pull Request as a draft").flag(default = false)
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val provider by option("--provider", help = "VCS provider override (local-git, github)")
     private val dryRun by option("--dry-run", help = "Preview PR submission without modifying database or git").flag(default = false)
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
+        val effectiveOperator = cliContext.resolveOperator(operator)
 
         val activeConfig =
             if (provider == null && !isJson && !AiKanbanConfigLoader.hasConfigFile(cliContext.workingDir)) {
@@ -178,7 +180,7 @@ class WorkflowSubmitPrCommand : CliktCommand(name = "submit-pr") {
                 headBranch = head,
                 baseBranch = targetBase,
                 draft = draft,
-                operator = operator,
+                operator = effectiveOperator,
                 providerName = provider ?: activeConfig.provider,
                 dryRun = dryRun,
             )
@@ -205,17 +207,18 @@ class WorkflowStartReviewCommand : CliktCommand(name = "start-review") {
 
     private val taskId by argument("taskId", help = "Task ID (defaults to top task in REVIEW column)").int().optional()
     private val noCheckout by option("--no-checkout", help = "Skip checking out feature branch locally").flag(default = false)
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
+        val effectiveOperator = cliContext.resolveOperator(operator)
         val result =
             runBlocking {
                 cliContext.workflowService.startReview(
                     StartReviewRequest(
                         taskId = taskId,
-                        operator = operator,
+                        operator = effectiveOperator,
                         checkoutBranch = !noCheckout,
                     ),
                     workingDir = cliContext.workingDir,
@@ -247,7 +250,7 @@ class WorkflowRequestChangesCommand : CliktCommand(name = "request-changes") {
     private val taskId by argument("taskId", help = "Task ID").int()
     private val message by option("-m", "--message", help = "Review comments or rework requirements").default("")
     private val bodyFile by option("--body-file", help = "Path to file containing review comments")
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val provider by option("--provider", help = "VCS provider override (local-git, github)")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
@@ -259,13 +262,14 @@ class WorkflowRequestChangesCommand : CliktCommand(name = "request-changes") {
                 if (file.isFile && file.canRead()) file.readText() else null
             } ?: message.ifBlank { "Changes requested by reviewer" }
 
+        val effectiveOperator = cliContext.resolveOperator(operator)
         val result =
             runBlocking {
                 cliContext.workflowService.requestChanges(
                     RequestChangesWorkflowRequest(
                         taskId = taskId,
                         comment = reviewComment,
-                        operator = operator,
+                        operator = effectiveOperator,
                         providerName = provider,
                     ),
                 )
@@ -301,12 +305,13 @@ class WorkflowCompleteReviewCommand : CliktCommand(name = "complete-review") {
     private val noDeleteBranch by option("--no-delete-branch", help = "Skip deleting feature branch locally").flag(default = false)
     private val pullBase by option("--pull-base", help = "Execute git pull on target base branch after checkout").flag(default = false)
     private val base by option("--base", help = "Target base branch override (defaults to config defaultBaseBranch or 'main')")
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val provider by option("--provider", help = "VCS provider override (local-git, github)")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
+        val effectiveOperator = cliContext.resolveOperator(operator)
         val effectiveDeleteBranch: Boolean? =
             if (deleteBranch) {
                 true
@@ -323,7 +328,7 @@ class WorkflowCompleteReviewCommand : CliktCommand(name = "complete-review") {
                         taskId = taskId,
                         merge = merge,
                         comment = message,
-                        operator = operator,
+                        operator = effectiveOperator,
                         providerName = provider,
                         verify = verify,
                         checkoutBase = checkoutBase,
@@ -431,11 +436,12 @@ class WorkflowStartTaskCommand : CliktCommand(name = "start-task") {
     private val taskId by argument("taskId", help = "Task ID").int()
     private val assignee by option("-a", "--assignee", help = "Assigned user or agent name")
     private val noCheckout by option("--no-checkout", help = "Skip checking out feature branch locally").flag(default = false)
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
+        val effectiveOperator = cliContext.resolveOperator(operator)
         val task =
             runBlocking {
                 cliContext.workflowService.startTask(
@@ -443,7 +449,7 @@ class WorkflowStartTaskCommand : CliktCommand(name = "start-task") {
                         taskId = taskId,
                         assignee = assignee,
                         checkoutBranch = !noCheckout,
-                        operator = operator,
+                        operator = effectiveOperator,
                     ),
                     workingDir = cliContext.workingDir,
                 )
@@ -472,11 +478,12 @@ class WorkflowCommitCommand : CliktCommand(name = "commit") {
     private val message by option("-m", "--message", help = "Git commit message and audit log summary").required()
     private val files by option("-f", "--file", help = "Specific files to stage (defaults to all changed files)").multiple()
     private val noGit by option("--no-git", help = "Skip local git commit execution, only log to AiKanban").flag(default = false)
-    private val operator by option("-o", "--operator", help = "Operator identifier").default("workflow")
+    private val operator by option("-o", "--operator", help = "Operator identifier")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
+        val effectiveOperator = cliContext.resolveOperator(operator)
         val result =
             runBlocking {
                 cliContext.workflowService.commitTask(
@@ -484,7 +491,7 @@ class WorkflowCommitCommand : CliktCommand(name = "commit") {
                         taskId = taskId,
                         message = message,
                         files = files,
-                        operator = operator,
+                        operator = effectiveOperator,
                         executeGitCommit = !noGit,
                     ),
                     workingDir = cliContext.workingDir,

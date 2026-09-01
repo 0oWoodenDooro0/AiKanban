@@ -20,6 +20,7 @@ import aikanban.config.AiKanbanConfigLoader
 import aikanban.github.service.DefaultGitHubSyncService
 import aikanban.github.service.GitHubSyncService
 import aikanban.provider.DefaultGitCommandRunner
+import aikanban.provider.GitCommandRunner
 import aikanban.provider.ProviderFactory
 import aikanban.repository.SqliteTaskRepository
 import aikanban.service.DefaultKanbanService
@@ -46,6 +47,7 @@ class AiKanbanCommand(
     private val serviceOverride: KanbanService? = null,
     private val gitHubSyncServiceOverride: GitHubSyncService? = null,
     private val configOverride: AiKanbanConfig? = null,
+    private val gitCommandRunnerOverride: GitCommandRunner? = null,
     private val providerFactoryOverride: ProviderFactory? = null,
     private val workflowServiceOverride: KanbanWorkflowService? = null,
     private val prompterOverride: InteractivePrompter? = null,
@@ -81,7 +83,7 @@ class AiKanbanCommand(
         val service = serviceOverride ?: DefaultKanbanService(SqliteTaskRepository("jdbc:sqlite:$db"))
         val prompter = prompterOverride ?: TerminalInteractivePrompter(terminal)
         val config = configOverride ?: AiKanbanConfigLoader.load(workingDir)
-        val gitRunner = DefaultGitCommandRunner(workingDir)
+        val gitRunner = gitCommandRunnerOverride ?: DefaultGitCommandRunner(workingDir)
         val providerFactory =
             providerFactoryOverride
                 ?: ProviderFactory(

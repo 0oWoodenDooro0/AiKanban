@@ -32,7 +32,7 @@ class UpdateCommand : CliktCommand(name = "update") {
     private val githubRepo by option("--repo", "--github-repo", help = "New GitHub repository")
     private val githubIssueUrl by option("--issue", "--github-issue", help = "New GitHub Issue URL")
     private val githubPrUrl by option("--pr", "--github-pr", help = "New GitHub PR URL")
-    private val operator by option("-o", "--operator", help = "Operator making the update").default("cli")
+    private val operator by option("-o", "--operator", help = "Operator making the update")
     private val comment by option("-c", "--comment", help = "Optional comment explaining the update")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
@@ -45,6 +45,7 @@ class UpdateCommand : CliktCommand(name = "update") {
                 null
             }
 
+        val effectiveOperator = cliContext.resolveOperator(operator)
         val updated =
             cliContext.service.updateTask(
                 taskId = id,
@@ -57,7 +58,7 @@ class UpdateCommand : CliktCommand(name = "update") {
                 githubRepo = githubRepo,
                 githubIssueUrl = githubIssueUrl,
                 githubPrUrl = githubPrUrl,
-                operator = operator,
+                operator = effectiveOperator,
                 comment = comment,
             )
 

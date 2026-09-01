@@ -7,6 +7,7 @@ import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.Context
 import com.github.ajalt.clikt.core.requireObject
 import com.github.ajalt.clikt.parameters.arguments.argument
+import com.github.ajalt.clikt.parameters.arguments.optional
 import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
@@ -18,7 +19,8 @@ class ClaimCommand : CliktCommand(name = "claim") {
 
     private val cliContext by requireObject<CliContext>()
 
-    private val agent by argument("agent", help = "Agent or developer identifier")
+    private val agent by argument("agent", help = "Agent or developer identifier").optional()
+    private val operator by option("-o", "--operator", help = "Operator or agent identifier")
     private val from by option("-f", "--from", help = "Source status column to claim from").default("TODO")
     private val to by option("-t", "--to", help = "Target status column to transition to").default("IN_PROGRESS")
     private val tag by option("--tag", help = "Optional tag filter to match")
@@ -26,11 +28,12 @@ class ClaimCommand : CliktCommand(name = "claim") {
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
+        val effectiveAgent = cliContext.resolveOperator(agent ?: operator)
         val task =
             cliContext.service.claimNextTask(
                 fromStatus = from,
                 toStatus = to,
-                agentName = agent,
+                agentName = effectiveAgent,
                 tag = tag,
             )
 
@@ -44,7 +47,7 @@ class ClaimCommand : CliktCommand(name = "claim") {
             if (task != null) {
                 cliContext.terminal.println(
                     green(
-                        "✓ Agent @$agent claimed Task #${task.id}: \"${task.title}\" (${HumanRenderer.formatStatus(
+                        "✓ Agent @$effectiveAgent claimed Task #${task.id}: \"${task.title}\" (${HumanRenderer.formatStatus(
                             from,
                         )} -> ${HumanRenderer.formatStatus(to)})",
                     ),

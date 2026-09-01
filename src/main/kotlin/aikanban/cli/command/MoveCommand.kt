@@ -20,7 +20,7 @@ class MoveCommand : CliktCommand(name = "move") {
 
     private val id by argument("id", help = "Task ID to move").int()
     private val status by argument("status", help = "Target column status ID (e.g. TODO, IN_PROGRESS, REVIEW, DONE)")
-    private val operator by option("-o", "--operator", help = "Operator moving the task").default("cli")
+    private val operator by option("-o", "--operator", help = "Operator moving the task")
     private val comment by option("-c", "--comment", help = "Optional comment or rationale for the status transition")
     private val pr by option("--pr", "--github-pr", help = "Associated GitHub Pull Request URL")
     private val assignee by option("-a", "--assignee", help = "Update assignee during the status transition")
@@ -28,11 +28,12 @@ class MoveCommand : CliktCommand(name = "move") {
 
     override fun run() {
         val isJson = json || cliContext.jsonOutput
+        val effectiveOperator = cliContext.resolveOperator(operator)
         val task =
             cliContext.service.moveTask(
                 taskId = id,
                 toStatus = status,
-                operator = operator,
+                operator = effectiveOperator,
                 comment = comment,
                 prUrl = pr,
                 assignee = assignee,
@@ -41,7 +42,9 @@ class MoveCommand : CliktCommand(name = "move") {
         if (isJson) {
             println(JsonRenderer.render(task))
         } else {
-            cliContext.terminal.println(green("✓ Moved Task #${task.id} to ${HumanRenderer.formatStatus(task.status)} by @$operator"))
+            cliContext.terminal.println(
+                green("✓ Moved Task #${task.id} to ${HumanRenderer.formatStatus(task.status)} by @$effectiveOperator"),
+            )
         }
     }
 }

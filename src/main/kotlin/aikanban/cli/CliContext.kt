@@ -37,4 +37,17 @@ data class CliContext(
     val gitHubSyncService: GitHubSyncService = DefaultGitHubSyncService(service),
     val terminal: Terminal = Terminal(),
     val jsonOutput: Boolean = false,
-)
+) {
+    fun resolveOperator(
+        explicit: String?,
+        fallback: String = aikanban.cli.context.OperatorResolver.DEFAULT_FALLBACK,
+    ): String {
+        return aikanban.cli.context.OperatorResolver.resolve(
+            explicitOperator = explicit,
+            config = config,
+            gitCommandRunner = gitCommandRunner,
+            workingDir = workingDir,
+            fallback = fallback,
+        )
+    }
+}

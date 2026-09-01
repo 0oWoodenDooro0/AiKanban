@@ -25,6 +25,7 @@ class AiKanbanConfigTest {
         assertEquals("feature/", config.branchPrefix)
         assertNull(config.repo)
         assertNull(config.token)
+        assertNull(config.operator)
         assertTrue(config.verify.isEmpty())
         assertTrue(config.hooks.isEmpty())
         assertTrue(config.workflows.isEmpty())
@@ -43,6 +44,7 @@ class AiKanbanConfigTest {
                 "repo": "owner/custom-repo",
                 "branchPrefix": "feat/",
                 "token": "secret-token",
+                "operator": "config-bot",
                 "verify": ["./gradlew test", "./gradlew ktlintCheck"],
                 "hooks": {
                     "pre-submit-pr": ["./gradlew check"],
@@ -64,6 +66,7 @@ class AiKanbanConfigTest {
         assertEquals("owner/custom-repo", config.repo)
         assertEquals("feat/", config.branchPrefix)
         assertEquals("secret-token", config.token)
+        assertEquals("config-bot", config.operator)
         assertEquals(listOf("./gradlew test", "./gradlew ktlintCheck"), config.verify)
         assertEquals(listOf("./gradlew check"), config.hooks["pre-submit-pr"])
         assertEquals(listOf("./gradlew ktlintFormat"), config.hooks["pre-commit"])
@@ -189,6 +192,7 @@ class AiKanbanConfigTest {
                 repo = "global/repo",
                 branchPrefix = "feature/",
                 token = "global-token",
+                operator = "global-operator",
                 verify = listOf("global-verify-cmd"),
                 hooks =
                     mapOf(
@@ -209,6 +213,7 @@ class AiKanbanConfigTest {
                 repo = "project/repo",
                 branchPrefix = "task/",
                 token = null,
+                operator = "project-operator",
                 verify = listOf("./gradlew test"),
                 hooks =
                     mapOf(
@@ -230,6 +235,7 @@ class AiKanbanConfigTest {
         assertEquals("project/repo", merged.repo)
         assertEquals("task/", merged.branchPrefix)
         assertEquals("global-token", merged.token) // falls back to global token if project token is null
+        assertEquals("project-operator", merged.operator)
         assertEquals(listOf("./gradlew test"), merged.verify)
 
         // Hooks merged: pre-submit-pr overridden, pre-commit retained from global, post-commit added from project

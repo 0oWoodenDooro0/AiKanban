@@ -76,6 +76,8 @@ interface GitCommandRunner {
     ): GitProcessResult = GitProcessResult(0, "", "")
 
     fun getHeadCommitHash(workingDir: File? = null): String? = null
+
+    fun getUserName(workingDir: File? = null): String? = null
 }
 
 class DefaultGitCommandRunner(
@@ -231,6 +233,11 @@ class DefaultGitCommandRunner(
 
     override fun getHeadCommitHash(workingDir: File?): String? {
         val res = runProcess(listOf("git", "rev-parse", "HEAD"), workingDir)
+        return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
+    }
+
+    override fun getUserName(workingDir: File?): String? {
+        val res = runProcess(listOf("git", "config", "user.name"), workingDir)
         return if (res.exitCode == 0 && res.stdout.isNotBlank()) res.stdout else null
     }
 }

@@ -3,6 +3,7 @@
   "defaultBaseBranch": "main",
   "repo": "0oWoodenDooro0/AiKanban",
   "branchPrefix": "feature/",
+  "operator": "Antigravity",
   "verify": [
     "./gradlew test",
     "./gradlew ktlintCheck"

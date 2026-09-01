@@ -42,6 +42,7 @@ AiKanban supports layered configuration with OS-native global config directories
   "repo": "owner/repo",
   "branchPrefix": "feature/",
   "token": "optional-token",
+  "operator": "Antigravity",
   "verify": [
     "./gradlew test",
     "./gradlew ktlintCheck"
@@ -78,7 +79,14 @@ AiKanban supports layered configuration with OS-native global config directories
 ```
 
 - **Supported Providers**: `local-git` (default, offline local Git), `github` (GitHub CLI & API).
-- **Cascading Merging**: Repository configurations inherit global defaults and override fields (e.g. `provider`, `repo`, `defaultBaseBranch`) or extend maps (`hooks`, `workflows`).
+- **Cascading Merging**: Repository configurations inherit global defaults and override fields (e.g. `provider`, `repo`, `defaultBaseBranch`, `operator`) or extend maps (`hooks`, `workflows`).
+
+### Automatic Operator Resolution Hierarchy
+When `-o` / `--operator` is omitted across any CLI command (`add`, `move`, `claim`, `log`, `update`, `sync`, `start-issue`, `start-task`, `commit`, `submit-pr`, `start-review`, `request-changes`, `complete-review`), `OperatorResolver` automatically determines the operator/agent identity using the following hierarchy:
+1. **Explicit CLI Option/Argument**: `--operator` / `-o` or command argument (e.g. `claim <agent>`).
+2. **AiKanban Configuration**: `operator` in `.aikanban.json` or global config (`config.json`).
+3. **Git Configuration**: `git config user.name`.
+4. **Fallback Default**: `"workflow"`.
 
 ---
 
@@ -116,7 +124,7 @@ aikanban --json add "<TITLE>" [options]
 - `-s, --status <STATUS>`: Initial board column status (default: `TODO`).
 - `--repo <OWNER/REPO>`: Associated repository.
 - `--issue <URL>`: Associated Issue URL.
-- `-o, --operator <NAME>`: Operator identifier (default: `cli`).
+- `-o, --operator <NAME>`: Operator identifier (optional; auto-inferred via `OperatorResolver`).
 
 ---
 
@@ -137,7 +145,7 @@ aikanban --json move <TASK_ID> <STATUS> [options]
 ```
 
 **Options:**
-- `-o, --operator <NAME>`: Identifier of the operator making the move (default: `cli`).
+- `-o, --operator <NAME>`: Identifier of the operator making the move (optional; auto-inferred via `OperatorResolver`).
 - `-c, --comment <TEXT>`: Comment or rationale for the status transition.
 - `--pr <URL>`: Associated Pull Request URL.
 - `-a, --assignee <NAME>`: Update assignee during the transition.
@@ -147,13 +155,15 @@ aikanban --json move <TASK_ID> <STATUS> [options]
 ---
 
 ### 5. `claim` - Claim Highest-Priority Task
-Atomically claim the next highest-priority task (ordered by `URGENT` > `HIGH` > `MEDIUM` > `LOW`) from a source column and move it to a target column assigned to the agent.
+Atomically claim the next highest-priority task (ordered by `URGENT` > `HIGH` > `MEDIUM` > `LOW`) from a source column and move it to a target column assigned to the agent. If `<AGENT_NAME>` is omitted, `OperatorResolver` automatically infers the current agent/operator.
 
 ```bash
-aikanban --json claim <AGENT_NAME> [options]
+aikanban --json claim [AGENT_NAME] [options]
 ```
 
 **Options:**
+- `AGENT_NAME`: Optional agent identifier (auto-inferred if omitted).
+- `-o, --operator <NAME>`: Operator / agent override identifier (optional; auto-inferred via `OperatorResolver`).
 - `-f, --from <STATUS>`: Source status column to claim from (default: `TODO`).
 - `-t, --to <STATUS>`: Target status column to transition to (default: `IN_PROGRESS`).
 - `--tag <TAG>`: Optional tag filter to match.
@@ -169,7 +179,7 @@ aikanban --json log <TASK_ID> [options]
 
 **Options:**
 - `-m, -c, --comment <TEXT>`: Comment or progress log message to append.
-- `-o, --operator <NAME>`: Operator adding the log entry (default: `cli`).
+- `-o, --operator <NAME>`: Operator adding the log entry (optional; auto-inferred via `OperatorResolver`).
 - `--commit <HASH>`: Associated Git commit hash.
 - `--pr <URL>`: Associated Pull Request URL.
 
@@ -192,7 +202,7 @@ aikanban --json update <TASK_ID> [options]
 - `--repo <OWNER/REPO>`: New repository.
 - `--issue <URL>`: New Issue URL.
 - `--pr <URL>`: New PR URL.
-- `-o, --operator <NAME>`: Operator identifier (default: `cli`).
+- `-o, --operator <NAME>`: Operator identifier (optional; auto-inferred via `OperatorResolver`).
 - `-c, --comment <TEXT>`: Optional log comment explaining the update.
 
 ---
@@ -264,7 +274,7 @@ aikanban --json workflow start-issue "<TITLE>" [options]
 - `-a, --assignee <NAME>`: Assigned user or agent.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `--dry-run`: Preview workflow actions without writing to DB or running Git commands.
-- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+- `-o, --operator <NAME>`: Operator identifier (optional; auto-inferred via `OperatorResolver`).
 
 **Lifecycle & Internal Execution Steps:**
 1. **Provider & Branch Resolution**: Resolves VCS provider (`github`, `local-git`) from `.aikanban.json` or `--provider` flag. Resolves branch name (uses `-b` or auto-generates `<branchPrefix><slugified-title>`).
@@ -300,7 +310,7 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - `--draft`: Open as draft PR.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `--dry-run`: Preview PR submission without executing Git push or DB transition.
-- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+- `-o, --operator <NAME>`: Operator identifier (optional; auto-inferred via `OperatorResolver`).
 
 **Automatic Enriched Body Features:**
 - **Issue Auto-Linking**: Automatically parses `githubIssueUrl` / Issue ID and appends `Closes #<Number>` (or avoids duplication if `Closes`, `Resolves`, or `Fixes` is already present).
@@ -316,7 +326,7 @@ aikanban --json workflow start-review [TASK_ID] [options]
 **Options:**
 - `TASK_ID`: Kanban task ID (optional; automatically resolves top task in `REVIEW` column if omitted).
 - `--no-checkout`: Skip checking out the feature branch locally (default: `false`).
-- `-o, --operator <NAME>`: Reviewer identifier (default: `workflow`).
+- `-o, --operator <NAME>`: Reviewer identifier (optional; auto-inferred via `OperatorResolver`).
 
 #### `workflow request-changes`
 Request rework or changes on a task under review: transitions the task to the `REQUEST` column, posts change request review comments to the remote PR (if GitHub), and logs feedback on the Kanban board.
@@ -329,7 +339,7 @@ aikanban --json workflow request-changes <TASK_ID> [options]
 - `-m, --message <TEXT>`: Review comments or rework feedback.
 - `--body-file <FILE>`: File containing review feedback markdown.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
-- `-o, --operator <NAME>`: Reviewer identifier (default: `workflow`).
+- `-o, --operator <NAME>`: Reviewer identifier (optional; auto-inferred via `OperatorResolver`).
 
 #### `workflow complete-review`
 Complete review: runs quality verification gate (`--verify`), executes `pre-complete-review` hooks, optionally approves and merges PR / branch (`--merge`), automatically checks out target base branch (`--checkout-base`, default `true`), automatically deletes feature branch (`--delete-branch`), transitions task to `DONE`, and executes `post-complete-review` hooks.
@@ -347,7 +357,7 @@ aikanban --json workflow complete-review <TASK_ID> [options]
 - `--merge`: Automatically approve and merge the Pull Request / feature branch.
 - `-m, --message <TEXT>`: Approval summary or audit log comment.
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
-- `-o, --operator <NAME>`: Reviewer identifier (default: `workflow`).
+- `-o, --operator <NAME>`: Reviewer identifier (optional; auto-inferred via `OperatorResolver`).
 
 #### `workflow run`
 Execute custom multi-step workflow defined in configuration `workflows.<name>`.
@@ -376,7 +386,7 @@ aikanban --json workflow start-task <TASK_ID> [options]
 **Options:**
 - `-a, --assignee <NAME>`: Assigned user or agent name.
 - `--no-checkout`: Skip checking out the feature branch locally (default: `false`).
-- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+- `-o, --operator <NAME>`: Operator identifier (optional; auto-inferred via `OperatorResolver`).
 
 #### `workflow commit`
 Execute `pre-commit` hooks, stage files, create Git commit, log commit hash to Kanban task, and execute `post-commit` hooks.
@@ -389,7 +399,7 @@ aikanban --json workflow commit <TASK_ID> -m "<MESSAGE>" [options]
 - `-m, --message <TEXT>`: Git commit message (required).
 - `-f, --file <PATH>`: Specific files to stage (repeatable, defaults to all modified files).
 - `--no-git`: Skip local Git commit execution, only log to AiKanban task.
-- `-o, --operator <NAME>`: Operator identifier (default: `workflow`).
+- `-o, --operator <NAME>`: Operator identifier (optional; auto-inferred via `OperatorResolver`).
 
 ---
 

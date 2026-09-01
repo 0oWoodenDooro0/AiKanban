@@ -115,6 +115,7 @@ class SyncAndWorkflowCliTest {
                 AiKanbanCommand(
                     serviceOverride = service,
                     configOverride = config,
+                    gitCommandRunnerOverride = fakeGitRunner,
                     providerFactoryOverride = providerFactory,
                     workflowServiceOverride = workflowService,
                     gitHubSyncServiceOverride = gitHubSyncService,
@@ -288,6 +289,81 @@ class SyncAndWorkflowCliTest {
             assertEquals(0, result.exitCode)
             val updated = service.getTask(task.id)
             assertTrue(updated.logs.any { it.comment.contains("Committed changes: feat: cli commit") })
+        }
+    }
+
+    @Nested
+    @DisplayName("Operator Auto-Inference CLI Tests")
+    inner class OperatorInferenceCliTest {
+        @Test
+        @DisplayName("Should infer operator from config.operator in add command")
+        fun testAddCommandInfersOperatorFromConfig() {
+            config = AiKanbanConfig(provider = "local-git", operator = "config-bot")
+            val result = execute("add", "Config Inferred Task", "--json")
+            assertEquals(0, result.exitCode)
+            val task = json.decodeFromString<aikanban.model.Task>(result.stdout)
+            assertEquals("config-bot", task.logs.first().operator)
+        }
+
+        @Test
+        @DisplayName("Explicit -o option should override config.operator in add command")
+        fun testAddCommandExplicitOperatorOverridesConfig() {
+            config = AiKanbanConfig(provider = "local-git", operator = "config-bot")
+            val result = execute("add", "Explicit Task", "-o", "explicit-user", "--json")
+            assertEquals(0, result.exitCode)
+            val task = json.decodeFromString<aikanban.model.Task>(result.stdout)
+            assertEquals("explicit-user", task.logs.first().operator)
+        }
+
+        @Test
+        @DisplayName("Should infer agent/operator from git config in claim command when argument is omitted")
+        fun testClaimCommandInfersAgentFromGitConfig() {
+            config = AiKanbanConfig(provider = "local-git", operator = null)
+            fakeGitRunner.userName = "git-developer"
+            val task = service.createTask(title = "Claimable Task", status = "TODO")
+
+            val result = execute("claim", "--json")
+            assertEquals(0, result.exitCode)
+            val claimed = json.decodeFromString<aikanban.model.Task>(result.stdout)
+            assertEquals(task.id, claimed.id)
+            assertEquals("git-developer", claimed.assignee)
+            assertEquals("IN_PROGRESS", claimed.status)
+        }
+
+        @Test
+        @DisplayName("Should infer operator from fallback in move and log commands when config and git are absent")
+        fun testMoveAndLogCommandsInferOperatorFromFallback() {
+            config = AiKanbanConfig(provider = "local-git", operator = null)
+            fakeGitRunner.userName = null
+            val task = service.createTask(title = "Move Log Task", status = "TODO")
+
+            val moveRes = execute("move", task.id.toString(), "IN_PROGRESS", "--json")
+            assertEquals(0, moveRes.exitCode)
+            val moved = json.decodeFromString<aikanban.model.Task>(moveRes.stdout)
+            assertEquals("workflow", moved.logs.last().operator)
+
+            val logRes = execute("log", task.id.toString(), "-m", "Progress log", "--json")
+            assertEquals(0, logRes.exitCode)
+            val entry = json.decodeFromString<aikanban.model.TaskLogEntry>(logRes.stdout)
+            assertEquals("workflow", entry.operator)
+        }
+
+        @Test
+        @DisplayName("Should infer operator from config in workflow start-task and commit commands")
+        fun testWorkflowCommandsInferOperatorFromConfig() {
+            config = AiKanbanConfig(provider = "local-git", operator = "workflow-bot")
+            val task = service.createTask(title = "Workflow Task", status = "TODO")
+
+            val startRes = execute("workflow", "start-task", task.id.toString(), "--no-checkout", "--json")
+            assertEquals(0, startRes.exitCode)
+            val started = json.decodeFromString<aikanban.model.Task>(startRes.stdout)
+            assertEquals("workflow-bot", started.logs.last().operator)
+
+            val commitRes = execute("workflow", "commit", task.id.toString(), "-m", "feat: test", "--no-git", "--json")
+            assertEquals(0, commitRes.exitCode)
+            val updated = service.getTask(task.id)
+            val commitLog = updated.logs.first { it.comment.contains("Committed changes") }
+            assertEquals("workflow-bot", commitLog.operator)
         }
     }
 }

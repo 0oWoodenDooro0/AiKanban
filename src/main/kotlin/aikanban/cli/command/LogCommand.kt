@@ -20,7 +20,7 @@ class LogCommand : CliktCommand(name = "log") {
 
     private val id by argument("id", help = "Task ID").int()
     private val comment by option("-m", "-c", "--comment", "--message", help = "Comment or progress log message to add")
-    private val operator by option("-o", "--operator", help = "Operator adding the log").default("cli")
+    private val operator by option("-o", "--operator", help = "Operator adding the log")
     private val pr by option("--pr", "--github-pr", help = "Associated GitHub Pull Request URL")
     private val commit by option("--commit", help = "Associated Git commit hash")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
@@ -30,10 +30,11 @@ class LogCommand : CliktCommand(name = "log") {
         val logComment = comment
 
         if (logComment != null) {
+            val effectiveOperator = cliContext.resolveOperator(operator)
             val entry =
                 cliContext.service.addComment(
                     taskId = id,
-                    operator = operator,
+                    operator = effectiveOperator,
                     comment = logComment,
                     prUrl = pr,
                     commitHash = commit,
@@ -42,7 +43,7 @@ class LogCommand : CliktCommand(name = "log") {
             if (isJson) {
                 println(JsonRenderer.render(entry))
             } else {
-                cliContext.terminal.println(green("✓ Added comment to Task #$id by @$operator: \"$logComment\""))
+                cliContext.terminal.println(green("✓ Added comment to Task #$id by @$effectiveOperator: \"$logComment\""))
             }
         } else {
             val logs = cliContext.service.getTaskLogs(id)

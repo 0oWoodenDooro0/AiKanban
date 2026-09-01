@@ -69,6 +69,7 @@ class AiKanbanCliTest {
                 AiKanbanCommand(
                     serviceOverride = service,
                     gitHubSyncServiceOverride = gitHubSyncService,
+                    workingDirOverride = tempDir.toFile(),
                 )
             val exitCode = command.parseArgs(args.toList())
             return CliExecutionResult(

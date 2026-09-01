@@ -355,48 +355,94 @@ class KanbanApiTest {
         @DisplayName("GET /api/tasks with filters should filter by status, assignee, tag, and priority")
         fun testGetTasksFiltering() =
             withKanbanApp { client ->
-                service.createTask(
-                    title = "Task 1",
-                    status = "TODO",
-                    priority = TaskPriority.LOW,
-                    tags = setOf("frontend"),
-                )
-                service.createTask(
-                    title = "Task 2",
-                    status = "IN_PROGRESS",
-                    assignee = "alice",
-                    priority = TaskPriority.HIGH,
-                    tags = setOf("backend"),
-                )
-                service.createTask(
-                    title = "Task 3",
-                    status = "TODO",
-                    assignee = "bob",
-                    priority = TaskPriority.HIGH,
-                    tags = setOf("backend", "database"),
-                )
+                val t1 =
+                    service.createTask(
+                        title = "Task 1",
+                        status = "TODO",
+                        priority = TaskPriority.LOW,
+                        tags = setOf("frontend"),
+                    )
+                val t2 =
+                    service.createTask(
+                        title = "Task 2",
+                        status = "IN_PROGRESS",
+                        assignee = "alice",
+                        priority = TaskPriority.HIGH,
+                        tags = setOf("backend"),
+                    )
+                val t3 =
+                    service.createTask(
+                        title = "Task 3",
+                        status = "TODO",
+                        assignee = "bob",
+                        priority = TaskPriority.HIGH,
+                        tags = setOf("backend", "database"),
+                    )
+                val t4 =
+                    service.createTask(
+                        title = "Task 4",
+                        status = "DONE",
+                        assignee = "alice",
+                        priority = TaskPriority.URGENT,
+                        tags = setOf("backend"),
+                    )
 
-                // Filter by status
+                // Default GET /api/tasks excludes DONE and sorts by PRIORITY DESC, ID ASC
+                val defaultList: List<Task> = client.get("/api/tasks").body()
+                assertEquals(3, defaultList.size, "Default GET /api/tasks should exclude DONE tasks")
+                assertEquals(listOf(t2.id, t3.id, t1.id), defaultList.map { it.id })
+
+                // Include completed via ?all=true
+                val allList: List<Task> = client.get("/api/tasks?all=true").body()
+                assertEquals(4, allList.size)
+                assertEquals(listOf(t4.id, t2.id, t3.id, t1.id), allList.map { it.id })
+
+                // Include completed via ?includeCompleted=true
+                val incList: List<Task> = client.get("/api/tasks?includeCompleted=true").body()
+                assertEquals(4, incList.size)
+                assertEquals(listOf(t4.id, t2.id, t3.id, t1.id), incList.map { it.id })
+
+                // Filter by status: TODO
                 val todoList: List<Task> = client.get("/api/tasks?status=TODO").body()
                 assertEquals(2, todoList.size)
+                assertEquals(listOf(t3.id, t1.id), todoList.map { it.id })
 
-                // Filter by assignee
+                // Filter by status: DONE (explicitly returns DONE tasks)
+                val doneList: List<Task> = client.get("/api/tasks?status=DONE").body()
+                assertEquals(1, doneList.size)
+                assertEquals(t4.id, doneList.first().id)
+
+                // Filter by assignee: alice (t2 IN_PROGRESS HIGH, t4 DONE URGENT -> default excludes t4)
                 val aliceList: List<Task> = client.get("/api/tasks?assignee=alice").body()
                 assertEquals(1, aliceList.size)
-                assertEquals("Task 2", aliceList[0].title)
+                assertEquals(t2.id, aliceList[0].id)
 
-                // Filter by tag
+                val aliceAllList: List<Task> = client.get("/api/tasks?assignee=alice&all=true").body()
+                assertEquals(2, aliceAllList.size)
+                assertEquals(listOf(t4.id, t2.id), aliceAllList.map { it.id })
+
+                // Filter by tag: backend (t2, t3, t4 -> default excludes t4)
                 val backendList: List<Task> = client.get("/api/tasks?tag=backend").body()
                 assertEquals(2, backendList.size)
+                assertEquals(listOf(t2.id, t3.id), backendList.map { it.id })
 
-                // Filter by priority
+                // Filter by priority: HIGH
                 val highList: List<Task> = client.get("/api/tasks?priority=HIGH").body()
                 assertEquals(2, highList.size)
+                assertEquals(listOf(t2.id, t3.id), highList.map { it.id })
+
+                // Custom sorting: sortBy=ID
+                val sortByIdList: List<Task> = client.get("/api/tasks?sortBy=ID").body()
+                assertEquals(listOf(t1.id, t2.id, t3.id), sortByIdList.map { it.id })
+
+                // Custom sorting: sortBy=ID_DESC
+                val sortByIdDescList: List<Task> = client.get("/api/tasks?sortBy=ID_DESC").body()
+                assertEquals(listOf(t3.id, t2.id, t1.id), sortByIdDescList.map { it.id })
 
                 // Combined filter
                 val combined: List<Task> = client.get("/api/tasks?status=TODO&priority=HIGH&tag=backend").body()
                 assertEquals(1, combined.size)
-                assertEquals("Task 3", combined[0].title)
+                assertEquals(t3.id, combined[0].id)
             }
 
         @Test

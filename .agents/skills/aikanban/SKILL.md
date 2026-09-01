@@ -93,7 +93,7 @@ When `-o` / `--operator` is omitted across any CLI command (`add`, `move`, `clai
 ## Commands & Usage
 
 ### 1. `list` - List and Filter Tasks
-List tasks on the board with optional filtering. Tasks are sorted by priority descending (`URGENT` > `HIGH` > `MEDIUM` > `LOW`) and then by ID ascending. By default, completed tasks (`DONE`) are excluded unless `--all` or an explicit status filter is provided.
+List tasks on the board with optional filtering and sorting. Tasks are sorted by priority descending (`URGENT` > `HIGH` > `MEDIUM` > `LOW`) and then by ID ascending by default. By default, completed tasks (`DONE`) are excluded unless `--all` or an explicit status filter is provided.
 
 ```bash
 aikanban --json list [options]
@@ -101,6 +101,7 @@ aikanban --json list [options]
 
 **Options:**
 - `--all`: Include all tasks (including completed `DONE` tasks).
+- `--sort, --sort-by <CRITERIA>`: Sort tasks by criteria (`PRIORITY`, `ID`, `ID_DESC`, `CREATED_AT`, `CREATED_AT_DESC`, `UPDATED_AT`, `UPDATED_AT_DESC`, default: `PRIORITY`).
 - `-s, --status <STATUS>`: Filter by column status (e.g. `TODO`, `IN_PROGRESS`, `REVIEW`, `DONE`).
 - `-a, --assignee <NAME>`: Filter by assigned user or agent name.
 - `-t, --tag <TAG>`: Filter by tag name.

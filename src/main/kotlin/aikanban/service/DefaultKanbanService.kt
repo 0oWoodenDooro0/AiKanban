@@ -4,6 +4,8 @@ import aikanban.model.BoardColumn
 import aikanban.model.Task
 import aikanban.model.TaskLogEntry
 import aikanban.model.TaskPriority
+import aikanban.model.TaskQuery
+import aikanban.model.TaskSortBy
 import aikanban.repository.TaskRepository
 import aikanban.service.event.KanbanEvent
 import aikanban.service.exception.ColumnNotFoundException
@@ -148,17 +150,28 @@ class DefaultKanbanService(
         return repository.getTask(id)
     }
 
-    override fun listTasks(
-        status: String?,
-        assignee: String?,
-        tag: String?,
-        priority: TaskPriority?,
-    ): List<Task> {
-        val tasks = repository.listTasks(status = status, assignee = assignee, tag = tag)
-        return if (priority != null) {
-            tasks.filter { it.priority == priority }
-        } else {
-            tasks
+    override fun listTasks(query: TaskQuery): List<Task> {
+        val tasks = repository.listTasks(status = query.status, assignee = query.assignee, tag = query.tag)
+        val filteredByPriority =
+            if (query.priority != null) {
+                tasks.filter { it.priority == query.priority }
+            } else {
+                tasks
+            }
+        val filteredByActive =
+            if (query.status == null && !query.includeCompleted) {
+                filteredByPriority.filter { !it.status.equals(BoardColumn.DONE.id, ignoreCase = true) }
+            } else {
+                filteredByPriority
+            }
+        return when (query.sortBy) {
+            TaskSortBy.PRIORITY -> filteredByActive.sortedWith(compareByDescending<Task> { it.priority.level }.thenBy { it.id })
+            TaskSortBy.ID -> filteredByActive.sortedBy { it.id }
+            TaskSortBy.ID_DESC -> filteredByActive.sortedByDescending { it.id }
+            TaskSortBy.CREATED_AT -> filteredByActive.sortedWith(compareBy<Task> { it.createdAt }.thenBy { it.id })
+            TaskSortBy.CREATED_AT_DESC -> filteredByActive.sortedWith(compareByDescending<Task> { it.createdAt }.thenByDescending { it.id })
+            TaskSortBy.UPDATED_AT -> filteredByActive.sortedWith(compareBy<Task> { it.updatedAt }.thenBy { it.id })
+            TaskSortBy.UPDATED_AT_DESC -> filteredByActive.sortedWith(compareByDescending<Task> { it.updatedAt }.thenByDescending { it.id })
         }
     }
 

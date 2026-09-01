@@ -2,6 +2,8 @@ package aikanban.service
 
 import aikanban.model.BoardColumn
 import aikanban.model.TaskPriority
+import aikanban.model.TaskQuery
+import aikanban.model.TaskSortBy
 import aikanban.repository.SqliteTaskRepository
 import aikanban.service.event.KanbanEvent
 import aikanban.service.exception.ColumnNotFoundException
@@ -255,7 +257,57 @@ class DefaultKanbanServiceTest {
     // ==========================================
 
     @Test
-    @DisplayName("Should list and filter tasks by status, assignee, tag, and priority")
+    @DisplayName("Should list active tasks excluding DONE and sorted by priority DESC and ID ASC by default")
+    fun testListTasksDefaultQuery() {
+        val t1 = service.createTask(title = "Task 1", priority = TaskPriority.LOW, status = "TODO")
+        val t2 = service.createTask(title = "Task 2", priority = TaskPriority.HIGH, status = "IN_PROGRESS")
+        val t3 = service.createTask(title = "Task 3", priority = TaskPriority.URGENT, status = "DONE")
+        val t4 = service.createTask(title = "Task 4", priority = TaskPriority.HIGH, status = "TODO")
+        val t5 = service.createTask(title = "Task 5", priority = TaskPriority.MEDIUM, status = "REVIEW")
+
+        val tasks = service.listTasks()
+        assertEquals(4, tasks.size, "Default listTasks should exclude DONE tasks")
+        // Expected order: Task 2 (HIGH, id 2), Task 4 (HIGH, id 4), Task 5 (MEDIUM, id 5), Task 1 (LOW, id 1)
+        assertEquals(listOf(t2.id, t4.id, t5.id, t1.id), tasks.map { it.id })
+
+        val tasksViaQuery = service.listTasks(TaskQuery())
+        assertEquals(tasks.map { it.id }, tasksViaQuery.map { it.id })
+    }
+
+    @Test
+    @DisplayName("Should list all tasks including DONE when includeCompleted is true")
+    fun testListTasksWithIncludeCompleted() {
+        val t1 = service.createTask(title = "Task 1", priority = TaskPriority.LOW, status = "TODO")
+        val t2 = service.createTask(title = "Task 2", priority = TaskPriority.HIGH, status = "IN_PROGRESS")
+        val t3 = service.createTask(title = "Task 3", priority = TaskPriority.URGENT, status = "DONE")
+
+        val tasks = service.listTasks(includeCompleted = true)
+        assertEquals(3, tasks.size)
+        // Expected order by priority DESC: Task 3 (URGENT), Task 2 (HIGH), Task 1 (LOW)
+        assertEquals(listOf(t3.id, t2.id, t1.id), tasks.map { it.id })
+
+        val queryTasks = service.listTasks(TaskQuery(includeCompleted = true))
+        assertEquals(listOf(t3.id, t2.id, t1.id), queryTasks.map { it.id })
+    }
+
+    @Test
+    @DisplayName("Should list DONE tasks when status is explicitly set to DONE")
+    fun testListTasksExplicitStatusDone() {
+        service.createTask(title = "Task 1", status = "TODO")
+        val doneTask = service.createTask(title = "Task 2", status = "DONE")
+
+        val tasks = service.listTasks(status = "DONE")
+        assertEquals(1, tasks.size)
+        assertEquals(doneTask.id, tasks.first().id)
+        assertEquals("DONE", tasks.first().status)
+
+        val queryTasks = service.listTasks(TaskQuery(status = "DONE"))
+        assertEquals(1, queryTasks.size)
+        assertEquals(doneTask.id, queryTasks.first().id)
+    }
+
+    @Test
+    @DisplayName("Should list and filter tasks by status, assignee, tag, and priority with default DONE exclusion")
     fun testListTasksFiltering() {
         val t1 =
             service.createTask(
@@ -298,25 +350,46 @@ class DefaultKanbanServiceTest {
                 priority = TaskPriority.URGENT,
             )
 
-        // Filter by status
+        // Filter by status: TODO
         val todoList = service.listTasks(status = "TODO")
         assertEquals(2, todoList.size)
         assertTrue(todoList.all { it.status == "TODO" })
+        assertEquals(listOf(t1.id, t3.id), todoList.map { it.id })
 
-        // Filter by assignee
-        val bobList = service.listTasks(assignee = "bob")
-        assertEquals(2, bobList.size)
-        assertTrue(bobList.all { it.assignee == "bob" })
+        // Filter by assignee: alice has t1 (TODO, HIGH), t4 (REVIEW, LOW), t5 (DONE, URGENT)
+        // Default excludes DONE (t5) -> returns t1, t4 sorted by priority DESC
+        val aliceList = service.listTasks(assignee = "alice")
+        assertEquals(2, aliceList.size)
+        assertEquals(listOf(t1.id, t4.id), aliceList.map { it.id })
 
-        // Filter by tag
+        // Filter by assignee with includeCompleted = true -> returns t5, t1, t4
+        val aliceAllList = service.listTasks(assignee = "alice", includeCompleted = true)
+        assertEquals(3, aliceAllList.size)
+        assertEquals(listOf(t5.id, t1.id, t4.id), aliceAllList.map { it.id })
+
+        // Filter by tag: backend has t1 (TODO), t3 (TODO), t5 (DONE)
+        // Default excludes DONE (t5) -> returns t1, t3
         val backendList = service.listTasks(tag = "backend")
-        assertEquals(3, backendList.size)
-        assertTrue(backendList.all { it.tags.contains("backend") })
+        assertEquals(2, backendList.size)
+        assertEquals(listOf(t1.id, t3.id), backendList.map { it.id })
 
-        // Filter by priority
+        // Filter by tag with includeCompleted = true -> returns t5, t1, t3
+        val backendAllList = service.listTasks(tag = "backend", includeCompleted = true)
+        assertEquals(3, backendAllList.size)
+        assertEquals(listOf(t5.id, t1.id, t3.id), backendAllList.map { it.id })
+
+        // Filter by priority: HIGH (t1, t3)
         val highList = service.listTasks(priority = TaskPriority.HIGH)
         assertEquals(2, highList.size)
         assertTrue(highList.all { it.priority == TaskPriority.HIGH })
+
+        // Filter by priority: URGENT (t5 DONE) -> default excludes DONE
+        val urgentList = service.listTasks(priority = TaskPriority.URGENT)
+        assertEquals(0, urgentList.size)
+
+        val urgentAllList = service.listTasks(priority = TaskPriority.URGENT, includeCompleted = true)
+        assertEquals(1, urgentAllList.size)
+        assertEquals(t5.id, urgentAllList.first().id)
 
         // Combined filter
         val combined =
@@ -332,6 +405,77 @@ class DefaultKanbanServiceTest {
         // No matches
         val noMatch = service.listTasks(status = "PENDING")
         assertTrue(noMatch.isEmpty())
+    }
+
+    @Test
+    @DisplayName("Should sort tasks according to specified TaskSortBy criteria")
+    fun testListTasksAllSortingOptions() {
+        val t1 = service.createTask(title = "Task 1", priority = TaskPriority.LOW, status = "TODO")
+        Thread.sleep(10)
+        val t2 = service.createTask(title = "Task 2", priority = TaskPriority.HIGH, status = "TODO")
+        Thread.sleep(10)
+        val t3 = service.createTask(title = "Task 3", priority = TaskPriority.URGENT, status = "TODO")
+        Thread.sleep(10)
+        val t4 = service.createTask(title = "Task 4", priority = TaskPriority.MEDIUM, status = "TODO")
+
+        // Update t2 to have latest updatedAt
+        Thread.sleep(10)
+        service.updateTask(taskId = t2.id, description = "Updated description")
+
+        // 1. Sort by PRIORITY (Priority DESC, ID ASC)
+        val byPriority = service.listTasks(sortBy = TaskSortBy.PRIORITY)
+        assertEquals(listOf(t3.id, t2.id, t4.id, t1.id), byPriority.map { it.id })
+
+        // 2. Sort by ID (ID ASC)
+        val byId = service.listTasks(sortBy = TaskSortBy.ID)
+        assertEquals(listOf(t1.id, t2.id, t3.id, t4.id), byId.map { it.id })
+
+        // 3. Sort by ID_DESC (ID DESC)
+        val byIdDesc = service.listTasks(sortBy = TaskSortBy.ID_DESC)
+        assertEquals(listOf(t4.id, t3.id, t2.id, t1.id), byIdDesc.map { it.id })
+
+        // 4. Sort by CREATED_AT (CREATED_AT ASC)
+        val byCreatedAt = service.listTasks(sortBy = TaskSortBy.CREATED_AT)
+        assertEquals(listOf(t1.id, t2.id, t3.id, t4.id), byCreatedAt.map { it.id })
+
+        // 5. Sort by CREATED_AT_DESC (CREATED_AT DESC)
+        val byCreatedAtDesc = service.listTasks(sortBy = TaskSortBy.CREATED_AT_DESC)
+        assertEquals(listOf(t4.id, t3.id, t2.id, t1.id), byCreatedAtDesc.map { it.id })
+
+        // 6. Sort by UPDATED_AT (UPDATED_AT ASC)
+        val byUpdatedAt = service.listTasks(sortBy = TaskSortBy.UPDATED_AT)
+        // t1, t3, t4 created earlier and not updated; t2 updated last
+        assertEquals(t2.id, byUpdatedAt.last().id)
+
+        // 7. Sort by UPDATED_AT_DESC (UPDATED_AT DESC)
+        val byUpdatedAtDesc = service.listTasks(sortBy = TaskSortBy.UPDATED_AT_DESC)
+        assertEquals(t2.id, byUpdatedAtDesc.first().id)
+    }
+
+    @Test
+    @DisplayName("Should verify equivalence between TaskQuery data class and overloaded listTasks method")
+    fun testTaskQueryEquivalence() {
+        service.createTask(title = "Alpha", priority = TaskPriority.HIGH, assignee = "dev", status = "TODO")
+        service.createTask(title = "Beta", priority = TaskPriority.URGENT, assignee = "dev", status = "TODO")
+        service.createTask(title = "Gamma", priority = TaskPriority.LOW, assignee = "dev", status = "DONE")
+
+        val fromQuery =
+            service.listTasks(
+                TaskQuery(
+                    assignee = "dev",
+                    includeCompleted = true,
+                    sortBy = TaskSortBy.PRIORITY,
+                ),
+            )
+
+        val fromOverload =
+            service.listTasks(
+                assignee = "dev",
+                includeCompleted = true,
+                sortBy = TaskSortBy.PRIORITY,
+            )
+
+        assertEquals(fromQuery.map { it.id }, fromOverload.map { it.id })
     }
 
     // ==========================================

@@ -8,6 +8,8 @@ import aikanban.api.dto.MoveTaskRequest
 import aikanban.api.dto.ReleaseTaskRequest
 import aikanban.api.dto.UpdateTaskRequest
 import aikanban.model.TaskPriority
+import aikanban.model.TaskQuery
+import aikanban.model.TaskSortBy
 import aikanban.service.KanbanService
 import aikanban.service.exception.TaskNotFoundException
 import io.ktor.http.HttpStatusCode
@@ -35,13 +37,30 @@ fun Route.taskRoutes(service: KanbanService) {
                         null
                     }
                 }
+            val includeCompleted =
+                call.request.queryParameters["includeCompleted"]?.toBooleanStrictOrNull()
+                    ?: call.request.queryParameters["all"]?.toBooleanStrictOrNull()
+                    ?: false
+            val sortByParam = call.request.queryParameters["sortBy"] ?: call.request.queryParameters["sort"]
+            val sortBy =
+                sortByParam?.let {
+                    try {
+                        TaskSortBy.valueOf(it.uppercase())
+                    } catch (e: IllegalArgumentException) {
+                        null
+                    }
+                } ?: TaskSortBy.PRIORITY
 
             val tasks =
                 service.listTasks(
-                    status = status,
-                    assignee = assignee,
-                    tag = tag,
-                    priority = priority,
+                    TaskQuery(
+                        status = status,
+                        assignee = assignee,
+                        tag = tag,
+                        priority = priority,
+                        includeCompleted = includeCompleted,
+                        sortBy = sortBy,
+                    ),
                 )
             call.respond(tasks)
         }

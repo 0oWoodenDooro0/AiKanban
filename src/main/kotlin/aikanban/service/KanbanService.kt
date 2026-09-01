@@ -4,6 +4,8 @@ import aikanban.model.BoardColumn
 import aikanban.model.Task
 import aikanban.model.TaskLogEntry
 import aikanban.model.TaskPriority
+import aikanban.model.TaskQuery
+import aikanban.model.TaskSortBy
 import aikanban.service.event.KanbanEvent
 import kotlinx.coroutines.flow.SharedFlow
 
@@ -39,12 +41,26 @@ interface KanbanService : AutoCloseable {
 
     fun getTaskOrNull(id: Int): Task?
 
+    fun listTasks(query: TaskQuery = TaskQuery()): List<Task>
+
     fun listTasks(
         status: String? = null,
         assignee: String? = null,
         tag: String? = null,
         priority: TaskPriority? = null,
-    ): List<Task>
+        includeCompleted: Boolean = false,
+        sortBy: TaskSortBy = TaskSortBy.PRIORITY,
+    ): List<Task> =
+        listTasks(
+            TaskQuery(
+                status = status,
+                assignee = assignee,
+                tag = tag,
+                priority = priority,
+                includeCompleted = includeCompleted,
+                sortBy = sortBy,
+            ),
+        )
 
     fun updateTask(
         taskId: Int,

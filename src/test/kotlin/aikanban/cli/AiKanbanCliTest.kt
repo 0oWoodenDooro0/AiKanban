@@ -376,6 +376,34 @@ class AiKanbanCliTest {
         }
 
         @Test
+        @DisplayName("Should sort tasks according to --sort / --sort-by option")
+        fun testListTasksWithSortOption() {
+            // Populate additional tasks
+            service.createTask(title = "Task 4", priority = TaskPriority.HIGH, status = "TODO")
+            service.createTask(title = "Task 5", priority = TaskPriority.MEDIUM, status = "TODO")
+
+            // Active tasks: Task 1 (id 1, LOW), Task 2 (id 2, HIGH), Task 4 (id 4, HIGH), Task 5 (id 5, MEDIUM)
+
+            // Default / PRIORITY sort: Task 2 (2), Task 4 (4), Task 5 (5), Task 1 (1)
+            val priorityResult = execute("list", "--sort", "PRIORITY", "--json")
+            assertEquals(0, priorityResult.exitCode)
+            val priorityTasks = json.decodeFromString<List<Task>>(priorityResult.stdout)
+            assertEquals(listOf(2, 4, 5, 1), priorityTasks.map { it.id })
+
+            // Sort by ID: 1, 2, 4, 5
+            val idResult = execute("list", "--sort", "ID", "--json")
+            assertEquals(0, idResult.exitCode)
+            val idTasks = json.decodeFromString<List<Task>>(idResult.stdout)
+            assertEquals(listOf(1, 2, 4, 5), idTasks.map { it.id })
+
+            // Sort by ID_DESC: 5, 4, 2, 1
+            val idDescResult = execute("list", "--sort-by", "ID_DESC", "--json")
+            assertEquals(0, idDescResult.exitCode)
+            val idDescTasks = json.decodeFromString<List<Task>>(idDescResult.stdout)
+            assertEquals(listOf(5, 4, 2, 1), idDescTasks.map { it.id })
+        }
+
+        @Test
         @DisplayName("Should render empty state message when no tasks match")
         fun testListEmptyState() {
             val result = execute("list", "-s", "REOPEN")

@@ -56,7 +56,7 @@ class DefaultIssueIngestionPipeline(
         totalFetched: Int,
         skippedCount: Int,
     ): ProviderSyncResult {
-        val existingTasks = kanbanService.listTasks()
+        val existingTasks = kanbanService.listTasks(includeCompleted = true)
         var createdCount = 0
         var updatedCount = 0
         val processedTasks = mutableListOf<Task>()

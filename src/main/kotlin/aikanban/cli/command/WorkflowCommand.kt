@@ -207,6 +207,15 @@ class WorkflowStartReviewCommand : CliktCommand(name = "start-review") {
 
     private val taskId by argument("taskId", help = "Task ID (defaults to top task in REVIEW column)").int().optional()
     private val noCheckout by option("--no-checkout", help = "Skip checking out feature branch locally").flag(default = false)
+    private val stash by option(
+        "--stash",
+        help = "Automatically stash uncommitted changes before checking out branch",
+    ).flag(default = false)
+    private val force by option(
+        "-f",
+        "--force",
+        help = "Force branch checkout even if working tree has uncommitted changes",
+    ).flag(default = false)
     private val operator by option("-o", "--operator", help = "Operator identifier")
     private val json by option("--json", help = "Output in machine-readable JSON format").flag(default = false)
 
@@ -220,6 +229,8 @@ class WorkflowStartReviewCommand : CliktCommand(name = "start-review") {
                         taskId = taskId,
                         operator = effectiveOperator,
                         checkoutBranch = !noCheckout,
+                        stash = stash,
+                        force = force,
                     ),
                     workingDir = cliContext.workingDir,
                 )
@@ -230,6 +241,9 @@ class WorkflowStartReviewCommand : CliktCommand(name = "start-review") {
         } else {
             val t = cliContext.terminal
             t.println(bold(green("✓ Started review for Task #${result.task.id}: \"${result.task.title}\"")))
+            if (result.stashed) {
+                t.println(yellow("  • Uncommitted changes stashed automatically"))
+            }
             if (result.branchName != null) {
                 t.println(blue("  • Branch: ${result.branchName}"))
             }

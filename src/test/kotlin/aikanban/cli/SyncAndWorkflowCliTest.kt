@@ -365,5 +365,25 @@ class SyncAndWorkflowCliTest {
             val commitLog = updated.logs.first { it.comment.contains("Committed changes") }
             assertEquals("workflow-bot", commitLog.operator)
         }
+
+        @Test
+        @DisplayName("workflow start-review --stash passes stash flag and indicates stashing")
+        fun testWorkflowStartReviewCliWithStash() {
+            val task = service.createTask(title = "Review CLI Stash Task", status = "REVIEW", branch = "feature/cli-stash")
+            val result = execute("workflow", "start-review", task.id.toString(), "--stash", "--json")
+            assertEquals(0, result.exitCode)
+            val startRes = json.decodeFromString<aikanban.workflow.StartReviewResult>(result.stdout)
+            assertEquals(task.id, startRes.task.id)
+        }
+
+        @Test
+        @DisplayName("workflow start-review --force passes force flag")
+        fun testWorkflowStartReviewCliWithForce() {
+            val task = service.createTask(title = "Review CLI Force Task", status = "REVIEW", branch = "feature/cli-force")
+            val result = execute("workflow", "start-review", task.id.toString(), "--force", "--json")
+            assertEquals(0, result.exitCode)
+            val startRes = json.decodeFromString<aikanban.workflow.StartReviewResult>(result.stdout)
+            assertEquals(task.id, startRes.task.id)
+        }
     }
 }

@@ -175,6 +175,7 @@ Assemble the JSON configuration adhering to the following schema:
   "defaultBaseBranch": "<main | master | develop>",
   "repo": "<owner/repo or omit if local-git>",
   "branchPrefix": "feature/",
+  "operator": "<Default Operator / Agent Name, e.g. Antigravity>",
   "verify": [
     "<Primary Unit Test Command>",
     "<Primary Linter / Typecheck Command>"
@@ -267,6 +268,7 @@ Present a clear and concise summary to the user containing:
   "defaultBaseBranch": "main",
   "repo": "owner/repo",
   "branchPrefix": "feature/",
+  "operator": "Antigravity",
   "verify": [
     "./gradlew test",
     "./gradlew ktlintCheck"

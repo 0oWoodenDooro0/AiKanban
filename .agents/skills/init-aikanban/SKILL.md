@@ -211,8 +211,8 @@ Assemble the JSON configuration adhering to the following schema:
   "workflow": {
     "mergeMethod": "squash",
     "deleteBranchOnMerge": true,
-    "requireVerification": false,
     "checkoutBaseOnComplete": true,
+    "checkoutBaseOnSubmitPr": true,
     "requestColumn": "REQUEST",
     "doneColumn": "DONE",
     "reviewColumn": "REVIEW"

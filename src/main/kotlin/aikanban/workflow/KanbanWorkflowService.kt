@@ -56,6 +56,7 @@ data class SubmitPrRequest(
     val headBranch: String? = null,
     val baseBranch: String = "main",
     val draft: Boolean = false,
+    val checkoutBase: Boolean = true,
     val operator: String = "workflow",
     val providerName: String? = null,
     val dryRun: Boolean = false,
@@ -65,6 +66,7 @@ data class SubmitPrRequest(
 data class SubmitPrResult(
     val task: Task,
     val pr: PullRequestResult,
+    val baseBranch: String? = null,
 )
 
 @Serializable
@@ -230,7 +232,10 @@ class DefaultShellCommandRunner(
 interface KanbanWorkflowService {
     suspend fun startIssue(request: StartIssueRequest): StartIssueResult
 
-    suspend fun submitPr(request: SubmitPrRequest): SubmitPrResult
+    suspend fun submitPr(
+        request: SubmitPrRequest,
+        workingDir: File? = null,
+    ): SubmitPrResult
 
     suspend fun startReview(
         request: StartReviewRequest,
@@ -412,6 +417,7 @@ class DefaultKanbanWorkflowService(
                 ),
             )
 
+        val resolvedRepo = config.repo ?: issueResult.url?.let { GitHubUrlParser.parseIssue(it) }?.let { "${it.owner}/${it.repo}" }
         if (request.dryRun) {
             val previewTask =
                 Task(
@@ -422,6 +428,7 @@ class DefaultKanbanWorkflowService(
                     assignee = request.assignee,
                     tags = request.tags,
                     branch = branchName,
+                    githubRepo = resolvedRepo,
                     githubIssueUrl = issueResult.url,
                     status = "TODO",
                 )
@@ -444,6 +451,7 @@ class DefaultKanbanWorkflowService(
                 assignee = request.assignee,
                 tags = request.tags,
                 branch = branchName,
+                githubRepo = resolvedRepo,
                 githubIssueUrl = issueResult.url,
                 status = "TODO",
                 operator = request.operator,
@@ -485,14 +493,18 @@ class DefaultKanbanWorkflowService(
         )
     }
 
-    override suspend fun submitPr(request: SubmitPrRequest): SubmitPrResult {
+    override suspend fun submitPr(
+        request: SubmitPrRequest,
+        workingDir: File?,
+    ): SubmitPrResult {
+        val dir = workingDir ?: File(".")
         val provider = providerOverride ?: providerFactory.resolve(request.providerName, config)
         val task = kanbanService.getTask(request.taskId)
 
         val headBranch =
             request.headBranch?.trim()?.takeIf { it.isNotBlank() }
                 ?: task.branch
-                ?: gitCommandRunner.getCurrentBranch()
+                ?: gitCommandRunner.getCurrentBranch(dir)
         val prTitle = request.title?.trim()?.takeIf { it.isNotBlank() } ?: task.title
         val prBody = buildPrBody(request.body, task)
 
@@ -506,12 +518,16 @@ class DefaultKanbanWorkflowService(
                     baseBranch = request.baseBranch,
                     draft = request.draft,
                 )
-            return SubmitPrResult(task, previewPr)
+            return SubmitPrResult(
+                task = task,
+                pr = previewPr,
+                baseBranch = if (request.checkoutBase) request.baseBranch else null,
+            )
         }
 
         val preHooks = config.hooks["pre-submit-pr"] ?: emptyList()
         for (hook in preHooks) {
-            val hookRes = shellCommandRunner.execute(hook)
+            val hookRes = shellCommandRunner.execute(hook, dir)
             if (!hookRes.success) {
                 throw IllegalStateException(
                     "Pre-submit-pr hook failed: $hook (exit code ${hookRes.exitCode}): ${hookRes.stderr.ifBlank { hookRes.stdout }}",
@@ -530,6 +546,14 @@ class DefaultKanbanWorkflowService(
                 ),
             )
 
+        var baseBranchResult: String? = null
+        if (request.checkoutBase && gitCommandRunner.isGitRepository(dir)) {
+            val checkoutRes = gitCommandRunner.checkoutBranch(request.baseBranch, createIfMissing = false, workingDir = dir)
+            if (checkoutRes.exitCode == 0) {
+                baseBranchResult = request.baseBranch
+            }
+        }
+
         val updatedTask =
             kanbanService.moveTask(
                 taskId = task.id,
@@ -541,12 +565,13 @@ class DefaultKanbanWorkflowService(
 
         val postHooks = config.hooks["post-submit-pr"] ?: emptyList()
         for (hook in postHooks) {
-            shellCommandRunner.execute(hook)
+            shellCommandRunner.execute(hook, dir)
         }
 
         return SubmitPrResult(
             task = updatedTask,
             pr = prResult,
+            baseBranch = baseBranchResult,
         )
     }
 

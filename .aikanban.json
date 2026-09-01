@@ -57,6 +57,7 @@
     "deleteBranchOnMerge": true,
     "requireVerification": false,
     "checkoutBaseOnComplete": true,
+    "checkoutBaseOnSubmitPr": true,
     "requestColumn": "REQUEST",
     "doneColumn": "DONE",
     "reviewColumn": "REVIEW"

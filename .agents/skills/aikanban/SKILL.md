@@ -71,6 +71,7 @@ AiKanban supports layered configuration with OS-native global config directories
     "deleteBranchOnMerge": true,
     "requireVerification": false,
     "checkoutBaseOnComplete": true,
+    "checkoutBaseOnSubmitPr": true,
     "requestColumn": "REQUEST",
     "doneColumn": "DONE",
     "reviewColumn": "REVIEW"
@@ -280,7 +281,7 @@ aikanban --json workflow start-issue "<TITLE>" [options]
 **Lifecycle & Internal Execution Steps:**
 1. **Provider & Branch Resolution**: Resolves VCS provider (`github`, `local-git`) from `.aikanban.json` or `--provider` flag. Resolves branch name (uses `-b` or auto-generates `<branchPrefix><slugified-title>`).
 2. **Issue Creation**: Creates remote issue on GitHub (`gh issue create`) or creates local issue record (`local://issue/...`).
-3. **Kanban Task Creation**: Inserts new task into SQLite database with status `TODO`, priority, tags, assignee, description, structured `branch`, and linked issue URL.
+3. **Kanban Task Creation**: Inserts new task into SQLite database with status `TODO`, priority, tags, assignee, description, structured `branch`, auto-populated `githubRepo`, and linked issue URL.
 4. **Plan Attachment**: If `--plan` is provided, posts the plan as a comment to the remote issue and records an audit log on the Kanban task.
 5. **Branch Creation**: Creates the dedicated Git development branch without switching to it (via GitHub `gh issue develop` issue-branch linking or `git branch <branch> <base>`), preserving the active workspace branch.
 6. **Audit Logging**: Appends `"Created branch <branch>"` to task history.
@@ -296,7 +297,7 @@ aikanban --json workflow start-issue "feat(auth): JWT authentication" \
 ```
 
 #### `workflow submit-pr`
-Atomically push Git branch, execute `pre-submit-pr` hooks, enrich PR body (auto-extract task checklists and auto-append `Closes #<Number>` from linked issue URL), create Pull Request via active provider, transition task to `REVIEW`, and execute `post-submit-pr` hooks.
+Atomically push Git branch, execute `pre-submit-pr` hooks, enrich PR body (auto-extract task checklists and auto-append `Closes #<Number>` from linked issue URL), create Pull Request via active provider, transition task to `REVIEW`, automatically check out target base branch (`main` or `defaultBaseBranch`), and execute `post-submit-pr` hooks.
 
 ```bash
 aikanban --json workflow submit-pr <TASK_ID> [options]
@@ -309,6 +310,7 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - `--head <BRANCH>`: Head branch (defaults to task `branch` or current active Git branch).
 - `--base <BRANCH>`: Base branch (default: `main` or config).
 - `--draft`: Open as draft PR.
+- `--checkout-base / --no-checkout-base`: Checkout target base branch after PR submission (default: inherits `workflow.checkoutBaseOnSubmitPr` or `true`).
 - `--provider <NAME>`: VCS provider override (`local-git`, `github`).
 - `--dry-run`: Preview PR submission without executing Git push or DB transition.
 - `-o, --operator <NAME>`: Operator identifier (optional; auto-inferred via `OperatorResolver`).
@@ -318,7 +320,7 @@ aikanban --json workflow submit-pr <TASK_ID> [options]
 - **Checklist Extraction**: Automatically extracts Markdown task checklists (`- [ ]`, `- [x]`, `* [ ]`, `1. [X]`) from the task description and injects them under `## Checklist` into custom PR bodies.
 
 #### `workflow start-review`
-Start a code review session: automatically resolves the target task in `REVIEW` status, executes `pre-start-review` hooks, checks out the dedicated feature branch locally, appends a review start audit log, and executes `post-start-review` hooks.
+Start a code review session: automatically resolves the target task in `REVIEW` status, executes `pre-start-review` hooks, automatically checks out the dedicated feature branch locally, appends a review start audit log, and executes `post-start-review` hooks.
 
 ```bash
 aikanban --json workflow start-review [TASK_ID] [options]
@@ -327,6 +329,8 @@ aikanban --json workflow start-review [TASK_ID] [options]
 **Options:**
 - `TASK_ID`: Kanban task ID (optional; automatically resolves top task in `REVIEW` column if omitted).
 - `--no-checkout`: Skip checking out the feature branch locally (default: `false`).
+- `--stash`: Automatically stash uncommitted changes before checking out feature branch.
+- `-f, --force`: Force branch checkout even if working tree has uncommitted changes.
 - `-o, --operator <NAME>`: Reviewer identifier (optional; auto-inferred via `OperatorResolver`).
 
 #### `workflow request-changes`

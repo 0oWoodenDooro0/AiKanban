@@ -249,4 +249,51 @@ class AiKanbanConfigTest {
         assertEquals(listOf("echo 2"), merged.workflows["override-wf"]?.steps)
         assertEquals(listOf("echo project"), merged.workflows["project-wf"]?.steps)
     }
+
+    @Test
+    @DisplayName("Should verify default WorkflowOptionsConfig has checkoutBaseOnSubmitPr = true")
+    fun testDefaultWorkflowOptionsConfig() {
+        val config = WorkflowOptionsConfig()
+        assertTrue(config.checkoutBaseOnSubmitPr)
+        assertTrue(config.checkoutBaseOnComplete)
+        assertEquals("squash", config.mergeMethod)
+    }
+
+    @Test
+    @DisplayName("Should load checkoutBaseOnSubmitPr from .aikanban.json configuration")
+    fun testLoadWorkflowOptionsConfigWithCheckoutBaseOnSubmitPr() {
+        val workingDir = tempDir.toFile()
+        val configFile = File(workingDir, ".aikanban.json")
+        configFile.writeText(
+            """
+            {
+                "provider": "local-git",
+                "workflow": {
+                    "checkoutBaseOnSubmitPr": false,
+                    "checkoutBaseOnComplete": false
+                }
+            }
+            """.trimIndent(),
+        )
+
+        val config = AiKanbanConfigLoader.load(workingDir, mergeGlobal = false)
+        assertEquals(false, config.workflow.checkoutBaseOnSubmitPr)
+        assertEquals(false, config.workflow.checkoutBaseOnComplete)
+    }
+
+    @Test
+    @DisplayName("Should cascade and merge checkoutBaseOnSubmitPr in workflow options")
+    fun testCascadingMergeWorkflowOptions() {
+        val global =
+            AiKanbanConfig(
+                workflow = WorkflowOptionsConfig(checkoutBaseOnSubmitPr = true),
+            )
+        val project =
+            AiKanbanConfig(
+                workflow = WorkflowOptionsConfig(checkoutBaseOnSubmitPr = false),
+            )
+
+        val merged = AiKanbanConfigLoader.merge(global, project)
+        assertEquals(false, merged.workflow.checkoutBaseOnSubmitPr)
+    }
 }

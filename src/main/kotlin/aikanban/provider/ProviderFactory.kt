@@ -3,7 +3,6 @@ package aikanban.provider
 import aikanban.config.AiKanbanConfig
 import aikanban.github.client.GitHubClient
 import aikanban.github.client.KtorGitHubClient
-import aikanban.github.service.GitHubSyncService
 import aikanban.service.KanbanService
 import java.io.File
 
@@ -13,7 +12,6 @@ class ProviderFactory(
     private val gitCommandRunner: GitCommandRunner = DefaultGitCommandRunner(),
     private val ghCliRunner: GhCliRunner = DefaultGhCliRunner(),
     private val workingDir: File = File("."),
-    private val gitHubSyncService: GitHubSyncService? = null,
 ) {
     fun resolve(
         overrideProvider: String? = null,
@@ -51,7 +49,6 @@ class ProviderFactory(
                     workingDir = workingDir,
                     defaultRepo = config.repo,
                     token = config.token,
-                    gitHubSyncService = gitHubSyncService,
                 )
             }
             else -> {

@@ -4,8 +4,6 @@ import aikanban.cli.prompt.InteractivePrompter
 import aikanban.cli.prompt.TerminalInteractivePrompter
 import aikanban.config.AiKanbanConfig
 import aikanban.config.AiKanbanConfigLoader
-import aikanban.github.service.DefaultGitHubSyncService
-import aikanban.github.service.GitHubSyncService
 import aikanban.provider.DefaultGitCommandRunner
 import aikanban.provider.GitCommandRunner
 import aikanban.provider.ProviderFactory
@@ -34,7 +32,6 @@ data class CliContext(
             config = config,
             gitCommandRunner = gitCommandRunner,
         ),
-    val gitHubSyncService: GitHubSyncService = DefaultGitHubSyncService(service),
     val terminal: Terminal = Terminal(),
     val jsonOutput: Boolean = false,
 ) {

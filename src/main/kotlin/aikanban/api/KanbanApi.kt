@@ -6,7 +6,6 @@ import aikanban.api.routes.eventRoutes
 import aikanban.api.routes.gitHubRoutes
 import aikanban.api.routes.taskRoutes
 import aikanban.config.AiKanbanConfig
-import aikanban.github.service.GitHubSyncService
 import aikanban.provider.ProviderFactory
 import aikanban.service.KanbanService
 import aikanban.service.exception.ColumnNotFoundException
@@ -46,7 +45,6 @@ fun Application.kanbanModule(
     json: Json = DefaultApiJson,
     providerFactory: ProviderFactory = ProviderFactory(service),
     config: AiKanbanConfig = AiKanbanConfig(),
-    gitHubSyncService: GitHubSyncService? = null,
 ) {
     install(ContentNegotiation) {
         json(json)
@@ -128,10 +126,9 @@ fun createKanbanServer(
     json: Json = DefaultApiJson,
     providerFactory: ProviderFactory = ProviderFactory(service),
     config: AiKanbanConfig = AiKanbanConfig(),
-    gitHubSyncService: GitHubSyncService? = null,
 ): EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration> {
     return embeddedServer(Netty, port = port, host = host) {
-        kanbanModule(service, json, providerFactory, config, gitHubSyncService)
+        kanbanModule(service, json, providerFactory, config)
     }
 }
 
@@ -142,7 +139,6 @@ fun startKanbanServer(
     wait: Boolean = true,
     providerFactory: ProviderFactory = ProviderFactory(service),
     config: AiKanbanConfig = AiKanbanConfig(),
-    gitHubSyncService: GitHubSyncService? = null,
 ): EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration> {
     val server =
         createKanbanServer(
@@ -151,7 +147,6 @@ fun startKanbanServer(
             service = service,
             providerFactory = providerFactory,
             config = config,
-            gitHubSyncService = gitHubSyncService,
         )
     server.start(wait = wait)
     return server

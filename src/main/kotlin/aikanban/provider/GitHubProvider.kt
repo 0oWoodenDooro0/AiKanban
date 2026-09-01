@@ -2,8 +2,6 @@ package aikanban.provider
 
 import aikanban.github.client.GitHubClient
 import aikanban.github.client.KtorGitHubClient
-import aikanban.github.model.GitHubResource
-import aikanban.github.service.GitHubSyncService
 import aikanban.github.service.GitHubUrlParser
 import aikanban.provider.ingestion.DefaultIssueIngestionPipeline
 import aikanban.provider.ingestion.IssueIngestionPipeline
@@ -21,7 +19,6 @@ class GitHubProvider(
     private val defaultRepo: String? = null,
     private val token: String? = null,
     private val ingestionPipeline: IssueIngestionPipeline = DefaultIssueIngestionPipeline(kanbanService),
-    private val gitHubSyncService: GitHubSyncService? = null,
 ) : IssueTrackerProvider {
     override val name: String = "github"
 
@@ -30,30 +27,10 @@ class GitHubProvider(
     }
 
     override fun resolveResource(url: String): ResolvedResource? {
-        val resource = GitHubUrlParser.parse(url) ?: return null
-        val number =
-            when (resource) {
-                is GitHubResource.Issue -> resource.number
-                is GitHubResource.PullRequest -> resource.number
-                is GitHubResource.Repository -> null
-            }
-        val resType =
-            when (resource) {
-                is GitHubResource.Issue -> ResourceType.ISSUE
-                is GitHubResource.PullRequest -> ResourceType.PULL_REQUEST
-                is GitHubResource.Repository -> ResourceType.REPOSITORY
-            }
-        return ResolvedResource(
-            provider = name,
-            owner = resource.owner,
-            repo = resource.repo,
-            type = resType,
-            number = number,
-            canonicalUrl = resource.canonicalUrl,
-        )
+        return GitHubUrlParser.parse(url)
     }
 
-    private fun extractIssueUrl(stdout: String): GitHubResource.Issue? {
+    private fun extractIssueUrl(stdout: String): ResolvedResource? {
         for (line in stdout.lines()) {
             val trimmed = line.trim()
             val parsed = GitHubUrlParser.parseIssue(trimmed)
@@ -62,7 +39,7 @@ class GitHubProvider(
         return null
     }
 
-    private fun extractPullRequestUrl(stdout: String): GitHubResource.PullRequest? {
+    private fun extractPullRequestUrl(stdout: String): ResolvedResource? {
         for (line in stdout.lines()) {
             val trimmed = line.trim()
             val parsed = GitHubUrlParser.parsePullRequest(trimmed)
@@ -319,58 +296,21 @@ class GitHubProvider(
         }
 
         val effectiveToken = request.token ?: token
-
-        if (gitHubSyncService != null) {
-            val parsed = GitHubUrlParser.parse(target)
-            val syncRes =
-                if (parsed is GitHubResource.Issue || parsed is GitHubResource.PullRequest) {
-                    gitHubSyncService.syncUrl(
-                        url = target,
-                        targetStatus = request.targetStatus,
-                        token = effectiveToken,
-                        operator = request.operator,
-                        dryRun = request.dryRun,
-                    )
-                } else {
-                    gitHubSyncService.syncRepository(
-                        repo = target,
-                        state = request.state,
-                        labels = request.labels,
-                        includePullRequests = request.includePullRequests,
-                        targetStatus = request.targetStatus,
-                        token = effectiveToken,
-                        operator = request.operator,
-                        dryRun = request.dryRun,
-                    )
-                }
-            return ProviderSyncResult(
-                provider = name,
-                repo = syncRes.repo,
-                totalFetched = syncRes.totalFetched,
-                createdCount = syncRes.createdCount,
-                updatedCount = syncRes.updatedCount,
-                skippedCount = syncRes.skippedCount,
-                tasks = syncRes.tasks,
-            )
-        }
-
         val parsed = GitHubUrlParser.parse(target)
 
-        return if (parsed is GitHubResource.Issue || parsed is GitHubResource.PullRequest) {
-            val issueNumber =
-                when (parsed) {
-                    is GitHubResource.Issue -> parsed.number
-                    is GitHubResource.PullRequest -> parsed.number
-                    else -> 0
-                }
+        return if (parsed?.type == ResourceType.ISSUE || parsed?.type == ResourceType.PULL_REQUEST) {
+            val owner = parsed.owner ?: throw IllegalArgumentException("Owner missing in resource: $target")
+            val repo = parsed.repo ?: throw IllegalArgumentException("Repo missing in resource: $target")
+            val issueNumber = parsed.number ?: 0
+            val fullRepo = "$owner/$repo"
 
             val issue =
                 gitHubClient.fetchIssue(
-                    owner = parsed.owner,
-                    repo = parsed.repo,
+                    owner = owner,
+                    repo = repo,
                     number = issueNumber,
                     token = effectiveToken,
-                ) ?: throw IllegalArgumentException("${parsed.type} #$issueNumber not found in ${parsed.fullRepo}")
+                ) ?: throw IllegalArgumentException("${parsed.type} #$issueNumber not found in $fullRepo")
 
             val rawIssue =
                 RawIssueData(
@@ -388,7 +328,7 @@ class GitHubProvider(
 
             ingestionPipeline.ingest(
                 issues = listOf(rawIssue),
-                repo = parsed.fullRepo,
+                repo = fullRepo,
                 targetStatus = request.targetStatus,
                 operator = request.operator,
                 dryRun = request.dryRun,
@@ -401,10 +341,14 @@ class GitHubProvider(
                 GitHubUrlParser.parseRepository(target)
                     ?: throw IllegalArgumentException("Invalid repository format: $target. Expected 'owner/repo' or GitHub repository URL.")
 
+            val owner = parsedRepo.owner ?: throw IllegalArgumentException("Owner missing in repository: $target")
+            val repo = parsedRepo.repo ?: throw IllegalArgumentException("Repo missing in repository: $target")
+            val fullRepo = "$owner/$repo"
+
             val issues =
                 gitHubClient.fetchRepositoryIssues(
-                    owner = parsedRepo.owner,
-                    repo = parsedRepo.repo,
+                    owner = owner,
+                    repo = repo,
                     state = request.state,
                     labels = request.labels,
                     token = effectiveToken,
@@ -437,7 +381,7 @@ class GitHubProvider(
 
             ingestionPipeline.ingest(
                 issues = rawIssues,
-                repo = parsedRepo.fullRepo,
+                repo = fullRepo,
                 targetStatus = request.targetStatus,
                 operator = request.operator,
                 dryRun = request.dryRun,

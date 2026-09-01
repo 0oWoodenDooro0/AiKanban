@@ -38,7 +38,6 @@ class SyncAndWorkflowCliTest {
     private lateinit var workflowService: DefaultKanbanWorkflowService
     private lateinit var config: AiKanbanConfig
     private lateinit var testGitHubClient: TestGitHubClient
-    private lateinit var gitHubSyncService: aikanban.github.service.GitHubSyncService
     private val json = Json { ignoreUnknownKeys = true }
 
     private class TestGitHubClient : aikanban.github.client.GitHubClient {
@@ -71,12 +70,11 @@ class SyncAndWorkflowCliTest {
         fakeGitRunner = LocalGitProviderTest.FakeGitCommandRunner()
         config = AiKanbanConfig(provider = "local-git", defaultBaseBranch = "main")
         testGitHubClient = TestGitHubClient()
-        gitHubSyncService = aikanban.github.service.DefaultGitHubSyncService(service, testGitHubClient)
         providerFactory =
             ProviderFactory(
                 kanbanService = service,
+                gitHubClient = testGitHubClient,
                 gitCommandRunner = fakeGitRunner,
-                gitHubSyncService = gitHubSyncService,
                 workingDir = tempDir.toFile(),
             )
         workflowService =
@@ -118,7 +116,6 @@ class SyncAndWorkflowCliTest {
                     gitCommandRunnerOverride = fakeGitRunner,
                     providerFactoryOverride = providerFactory,
                     workflowServiceOverride = workflowService,
-                    gitHubSyncServiceOverride = gitHubSyncService,
                 )
             val exitCode = command.parseArgs(args.toList())
             return CliExecutionResult(
